@@ -121,7 +121,7 @@ class PRDRWNDN_POS_App {
 	/** Version that changes whenever any app file changes, so installed apps update themselves. */
 	public static function build() {
 		$sum = PRDRWNDN_POS_VERSION;
-		foreach ( array( 'app.js', 'app.css' ) as $f ) {
+		foreach ( array( 'app.js', 'app.css', 'stock.js', 'stock.css' ) as $f ) {
 			$sum .= '|' . (int) @filemtime( PRDRWNDN_POS_DIR . 'assets/pos/' . $f ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 		}
 		return substr( md5( $sum ), 0, 10 );
@@ -138,6 +138,9 @@ class PRDRWNDN_POS_App {
 			'icons'      => array( $base . 'pos/icon-192.png' . $iv, $base . 'pos/icon-512.png' . $iv, $base . 'pos/apple-touch-icon.png' . $iv ),
 			'logo'       => $base . 'pos/logo.svg' . $iv,
 			'logo_light' => $base . 'pos/logo-light.svg' . $iv,
+			'stock_css'  => $base . 'pos/stock.css?v=' . $v,
+			'stock_js'   => $base . 'pos/stock.js?v=' . $v,
+			'font'       => $base . 'fonts/bebas-neue-latin-400-normal.woff2',
 		);
 	}
 
@@ -146,7 +149,7 @@ class PRDRWNDN_POS_App {
 		header( 'Content-Type: application/javascript; charset=utf-8' );
 		header( 'Service-Worker-Allowed: ' . self::path() );
 		$a     = self::assets();
-		$shell = array_merge( array( $a['css'], $a['js'], $a['zxing'], $a['logo'], $a['logo_light'] ), $a['icons'] );
+		$shell = array_merge( array( $a['css'], $a['js'], $a['zxing'], $a['logo'], $a['logo_light'], $a['stock_css'], $a['stock_js'], $a['font'] ), $a['icons'] );
 		?>
 /* PRDRWNDN POS service worker. Build <?php echo esc_js( self::build() ); ?> */
 var CACHE = 'prdpos-<?php echo esc_js( self::build() ); ?>';
@@ -269,6 +272,9 @@ self.addEventListener('fetch', function (e) {
 				'build'     => self::build(),
 				'zxing'     => $a['zxing'],
 				'logo'      => $a['logo_light'],
+				'stock'     => PRDRWNDN_POS_Stock::can(),
+				'stockCss'  => $a['stock_css'],
+				'font'      => $a['font'],
 			);
 		}
 		$gnonce = ( 'login' === $view && PRDRWNDN_POS_Google::enabled() ) ? PRDRWNDN_POS_Google::start( self::path() ) : '';
@@ -342,6 +348,9 @@ self.addEventListener('fetch', function (e) {
 	<p class="booting"><?php esc_html_e( 'Loading...', 'prdrwndn-pos' ); ?></p>
 </div>
 <script>window.PRDPOS = <?php echo wp_json_encode( $cfg, JSON_UNESCAPED_SLASHES ); ?>;</script>
+			<?php if ( PRDRWNDN_POS_Stock::can() ) : ?>
+<script src="<?php echo esc_url( $a['stock_js'] ); ?>"></script>
+			<?php endif; ?>
 <script src="<?php echo esc_url( $a['js'] ); ?>"></script>
 		<?php endif; ?>
 </body>

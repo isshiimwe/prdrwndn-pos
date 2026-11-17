@@ -22,6 +22,20 @@ and labels, all tied to WooCommerce stock so the website and in-person sales sha
 - Today tab: today's in-person sales and totals by payment method.
 - Cashiers cannot give discounts (owners and shop managers can).
 
+## Jersey Stock (Stock tab, administrators only)
+
+- The Izuba and Imigongo tracker: free to sell by size, pickup holds, every jersey sale,
+  costs and profit. Only administrators see the tab; the server refuses everyone else.
+- Jerseys sold in the POS and on the website count by themselves (POS sales as in person,
+  with the payment used, the deal price and no card fee). Log only sales made elsewhere
+  (TikTok Shop, WhatsApp, presale site).
+- Holds: **Ring up** puts the held jersey in the POS cart; completing the sale clears the
+  hold. **Paid already** marks it picked up without a POS sale.
+- Website sync: each Izuba and Imigongo size on the website shows only what is free.
+- **Jerseys made and prices**: change the counts when a new run arrives.
+- Data is saved in WordPress options `prd_jersey_config`, `prd_jersey_sales`,
+  `prd_jersey_costs`, `prd_jersey_sync` (kept if the plugin is removed).
+
 ## Barcodes and labels
 
 - **Number barcodes (UPC)**: every product and option gets a 12-digit barcode with the

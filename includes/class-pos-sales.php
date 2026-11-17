@@ -93,6 +93,7 @@ class PRDRWNDN_POS_Sales {
 				$out[] = array(
 					'label'  => $rule['label'] . ( $bundles > 1 ? ' x' . $bundles : '' ),
 					'amount' => $off,
+					'cat'    => (int) $rule['cat'],
 				);
 			}
 		}
@@ -238,6 +239,8 @@ class PRDRWNDN_POS_Sales {
 		$sold_at  = (int) $req->get_param( 'soldAt' );
 
 		$warnings = array();
+		$holds    = $req->get_param( 'holds' );
+		$held     = ( is_array( $holds ) && class_exists( 'PRDRWNDN_POS_Stock' ) ) ? PRDRWNDN_POS_Stock::holds_by_variation( $holds ) : array();
 		$order    = wc_create_order(
 			array(
 				'status'      => 'pending',
@@ -250,7 +253,7 @@ class PRDRWNDN_POS_Sales {
 		}
 		foreach ( $cart['lines'] as $l ) {
 			$order->add_product( $l['product'], $l['qty'] );
-			if ( $l['product']->managing_stock() && (int) $l['product']->get_stock_quantity() < $l['qty'] ) {
+			if ( $l['product']->managing_stock() && (int) $l['product']->get_stock_quantity() < $l['qty'] - ( $held[ $l['product']->get_id() ] ?? 0 ) ) {
 				/* translators: 1: product, 2: stock */
 				$warnings[] = sprintf( __( '%1$s: only %2$d were in stock on the website. Recount this item.', 'prdrwndn-pos' ), $l['label'], (int) $l['product']->get_stock_quantity() );
 			}
@@ -261,6 +264,12 @@ class PRDRWNDN_POS_Sales {
 			$fee->set_amount( -$d['amount'] );
 			$fee->set_total( -$d['amount'] );
 			$fee->set_tax_status( 'taxable' );
+			if ( ! empty( $d['cat'] ) ) {
+				$fee->add_meta_data( '_prdpos_deal_cat', (int) $d['cat'], true );
+			}
+			if ( ! empty( $d['manual'] ) ) {
+				$fee->add_meta_data( '_prdpos_discount', 1, true );
+			}
 			$order->add_item( $fee );
 		}
 
@@ -306,7 +315,15 @@ class PRDRWNDN_POS_Sales {
 		$order->update_status( 'completed', __( 'Paid in person.', 'prdrwndn-pos' ) );
 		wc_maybe_reduce_stock_levels( $order->get_id() );
 
-		return rest_ensure_response( self::sale_response( wc_get_order( $order->get_id() ), $warnings, false ) );
+		// Jersey holds picked up with this sale (Stock tab > Ring up): the sale counts them now.
+		$cleared = array();
+		if ( $held ) {
+			$cleared = PRDRWNDN_POS_Stock::clear_holds( $holds, wc_get_order( $order->get_id() ) );
+		}
+
+		$out                 = self::sale_response( wc_get_order( $order->get_id() ), $warnings, false );
+		$out['holdsCleared'] = $cleared;
+		return rest_ensure_response( $out );
 	}
 
 	public static function rest_sales() {
@@ -403,6 +420,7 @@ class PRDRWNDN_POS_Sales {
 			$out[] = array(
 				'label'  => __( 'Discount', 'prdrwndn-pos' ),
 				'amount' => $cart['discount'],
+				'manual' => true,
 			);
 		}
 		return $out;

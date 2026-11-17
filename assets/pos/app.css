@@ -102,6 +102,18 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .net.is-on { background: #d7efe1; color: #10402a; }
 .net.is-off { background: #f4d9a6; color: #5a3200; }
 .net.is-warn { background: #f7d3d3; color: #6d1717; }
+.net-dot { display: none; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.top, .tabs { min-width: 0; }
+/* With the Stock tab, phones get a tighter header so nothing slides sideways. */
+@media (max-width: 480px) {
+	.has-stock .top { gap: 4px; padding-left: 10px; padding-right: 4px; }
+	.has-stock .top-brand .pos-tag { display: none; }
+	.has-stock .tabs { margin-left: 2px; gap: 2px; }
+	.has-stock .tab { padding: 6px 9px; }
+	.has-stock .net { display: inline-flex; align-items: center; justify-content: center; width: 32px; padding: 0; }
+	.has-stock .net-text { display: none; }
+	.has-stock .net-dot { display: block; }
+}
 .stripe { display: flex; height: 5px; }
 .stripe i { display: block; }
 .stripe i:nth-child(1) { flex: 2; background: var(--flag-blue); }
@@ -242,11 +254,17 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 		max-height: calc(100vh - 63px); overflow-y: auto;
 		padding: 14px 16px; border-left: 1.5px solid var(--line); background: #fff; min-height: calc(100vh - 63px);
 	}
-	.tab-sales .cart { display: none; }
-	.tab-sales .main { grid-template-columns: minmax(0, 1fr); }
+	.tab-sales .cart, .tab-stock .cart { display: none; }
+	.tab-sales .main, .tab-stock .main { grid-template-columns: minmax(0, 1fr); }
 	.cartbar { display: none !important; }
 	.only-phone { display: none; }
 	.cart .btn-xl { position: sticky; bottom: 0; }
 	.sheet-wrap { align-items: center; }
 	.sheet { border-radius: 18px; max-height: calc(100% - 48px); }
 }
+
+/* Stock tab (administrators): the tracker draws inside its own box. */
+.pane.pane-stock { padding: 0; background: #F2F5F1; }
+.hold-note { display: flex; flex-direction: column; gap: 2px; margin: 10px 0 4px; padding: 10px 12px; border-radius: 10px; background: #FFF1C2; color: #5c3d00; font-size: 14px; }
+.hold-note strong { color: #3d2900; }
+.hold-note .muted { font-size: 12px; }

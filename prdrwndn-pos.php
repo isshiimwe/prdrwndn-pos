@@ -3,7 +3,7 @@
  * Plugin Name:       PRDRWNDN POS
  * Plugin URI:        https://github.com/isshiimwe/prdrwndn-pos
  * Description:       In-person point of sale (installable app at /pos), barcodes and labels for the PRDRWNDN store. Uses WooCommerce stock, so the website and in-person sales share one count.
- * Version:           0.4.2
+ * Version:           0.5.0
  * Author:            PRDRWNDN
  * Requires at least: 6.5
  * Requires PHP:      7.4
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'PRDRWNDN_POS_VERSION', '0.4.2' );
+define( 'PRDRWNDN_POS_VERSION', '0.5.0' );
 define( 'PRDRWNDN_POS_FILE', __FILE__ );
 define( 'PRDRWNDN_POS_BASENAME', plugin_basename( __FILE__ ) );
 define( 'PRDRWNDN_POS_DIR', plugin_dir_path( __FILE__ ) );
@@ -69,6 +69,7 @@ add_action(
 		require_once PRDRWNDN_POS_DIR . 'includes/class-pos-sales.php';
 		require_once PRDRWNDN_POS_DIR . 'includes/class-pos-app.php';
 		require_once PRDRWNDN_POS_DIR . 'includes/class-google.php';
+		require_once PRDRWNDN_POS_DIR . 'includes/class-stock.php';
 
 		// Re-run setup after an update (activation hooks do not run on updates).
 		if ( get_option( 'prdrwndn_pos_version' ) !== PRDRWNDN_POS_VERSION ) {
@@ -80,6 +81,7 @@ add_action(
 		PRDRWNDN_POS_REST::init();
 		PRDRWNDN_POS_Sales::init();
 		PRDRWNDN_POS_App::init();
+		PRDRWNDN_POS_Stock::init();
 
 		if ( is_admin() ) {
 			require_once PRDRWNDN_POS_DIR . 'admin/class-admin.php';

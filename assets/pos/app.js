@@ -264,12 +264,14 @@
 
 	function renderShell() {
 		root.removeAttribute('aria-busy');
+		document.body.classList.toggle('has-stock', !!C.stock);
 		root.innerHTML =
 			'<header class="top">' +
 				'<div class="top-brand"><img class="top-logo" src="' + h(C.logo || '') + '" alt="Proud Rwandan" width="51" height="38"><span class="pos-tag">POS</span></div>' +
 				'<nav class="tabs" aria-label="Sections">' +
 					'<button type="button" class="tab" data-action="tab" data-tab="sell">Sell</button>' +
 					'<button type="button" class="tab" data-action="tab" data-tab="sales">Today</button>' +
+					(C.stock ? '<button type="button" class="tab" data-action="tab" data-tab="stock">Stock</button>' : '') +
 				'</nav>' +
 				'<button type="button" class="net" id="net" data-action="sync"></button>' +
 				'<button type="button" class="icon-btn" data-action="menu" aria-label="Menu">' + ICON.menu + '</button>' +
@@ -286,6 +288,7 @@
 					'<div class="grid" id="grid"></div>' +
 				'</section>' +
 				'<section class="pane pane-sales" id="pane-sales" aria-label="Today\'s sales" hidden></section>' +
+				(C.stock ? '<section class="pane pane-stock" id="pane-stock" aria-label="Jersey stock" hidden></section>' : '') +
 				'<aside class="cart" id="cart" aria-label="Cart"></aside>' +
 			'</main>' +
 			'<button type="button" class="cartbar" id="cartbar" data-action="open-cart"></button>' +
@@ -324,7 +327,10 @@
 		});
 		document.getElementById('pane-sell').hidden = tab !== 'sell';
 		document.getElementById('pane-sales').hidden = tab !== 'sales';
+		var ps = document.getElementById('pane-stock');
+		if (ps) { ps.hidden = tab !== 'stock'; }
 		document.body.classList.toggle('tab-sales', tab === 'sales');
+		document.body.classList.toggle('tab-stock', tab === 'stock');
 	}
 
 	function renderStatus() {
@@ -334,7 +340,7 @@
 		var bad = queue.filter(function (s) { return s.error; }).length;
 		var text = online ? 'Online' : 'Offline';
 		if (waiting) { text += ' · ' + waiting + ' to upload'; }
-		net.textContent = text;
+		net.innerHTML = '<i class="net-dot" aria-hidden="true"></i><span class="net-text">' + h(text) + '</span>';
 		net.className = 'net ' + (online ? (bad ? 'is-warn' : 'is-on') : 'is-off');
 		net.setAttribute('aria-label', text + (waiting ? '. Tap to upload now.' : ''));
 		var so = document.getElementById('signed-out');
@@ -427,10 +433,13 @@
 			}).join('') +
 			(catalog.taxes ? '<div class="sum muted"><span>Sales tax</span><span>added at charge</span></div>' : '') +
 			'<div class="sum sum-total"><span>Total</span><span>' + money(t.total) + '</span></div>';
+		var holdNote = cart.holds && cart.holds.length ? '<div class="hold-note"><strong>Picking up ' + (cart.holds.length === 1 ? 'a hold' : cart.holds.length + ' holds') + '</strong>' +
+			cart.holds.map(function (x) { return '<span>' + h(x.name + ' ' + x.size + (x.qty > 1 ? ' x' + x.qty : '') + ' for ' + (x.customer || 'customer') + ', held at ' + money(x.price) + (x.qty > 1 ? ' each' : '')) + '</span>'; }).join('') +
+			'<span class="muted">Completing this sale clears the hold' + (cart.holds.length === 1 ? '' : 's') + ' in Stock.</span></div>' : '';
 		return '<div class="cart-head"><h2>Cart</h2>' +
 				'<button type="button" class="link" data-action="clear-cart">Clear</button>' +
 				'<button type="button" class="icon-btn only-phone" data-action="close-sheet" aria-label="Close cart">' + ICON.close + '</button></div>' +
-			'<ul class="lines">' + lines + '</ul>' +
+			'<ul class="lines">' + lines + '</ul>' + holdNote +
 			'<div class="sums">' + sums + '</div>' +
 			(catalog.canDiscount && !cart.discount ? '<button type="button" class="link add-discount" data-action="discount">Add a discount</button>' : '') +
 			'<button type="button" class="btn btn-primary btn-xl" data-action="charge">Charge ' + money(t.total) + '</button>';
@@ -499,6 +508,58 @@
 		openSheet('cart', cartHTML(totals()));
 	}
 
+	/* ---------------- Stock tab (administrators) ---------------- */
+
+	var stockUI = null;
+	function openStock() {
+		var pane = document.getElementById('pane-stock');
+		if (!pane || !window.PRDStock) { return; }
+		if (stockUI) { stockUI.refresh(); return; }
+		stockUI = window.PRDStock.mount(pane, {
+			api: api,
+			css: C.stockCss,
+			font: C.font,
+			ringUp: ringUpHolds,
+			visible: function () { return tab === 'stock'; }
+		});
+	}
+
+	// A jersey hold picked up at the counter: its jersey goes in the cart, and the sale clears the hold.
+	function ringUpHolds(rows) {
+		if (!catalog) { toast('Products are still loading. Try again in a moment.', true); return; }
+		var missing = rows.filter(function (r) { return !byId[r.variation]; });
+		if (missing.length) {
+			toast(missing.map(function (r) { return r.name + ' ' + r.size; }).join(', ') + ' is not in the POS list yet. Refresh products from the menu.', true);
+			return;
+		}
+		var added = 0;
+		rows.forEach(function (r) {
+			if ((cart.holds || []).some(function (x) { return x.id === r.id; })) { return; }
+			var line = cart.lines.filter(function (l) { return l.id === r.variation; })[0];
+			if (line) { line.qty += r.qty; } else { cart.lines.push({ id: r.variation, qty: r.qty }); }
+			cart.holds = (cart.holds || []).concat([{ id: r.id, variation: r.variation, name: r.name, size: r.size, qty: r.qty, price: r.price, customer: r.customer }]);
+			added++;
+		});
+		saveCart();
+		tab = 'sell';
+		renderTabs();
+		renderCart();
+		renderGridCounts();
+		if (!window.matchMedia('(min-width: 900px)').matches) { openCart(); }
+		toast(added ? (added === 1 ? 'Hold added to the cart' : added + ' holds added to the cart') : 'That hold is already in the cart');
+	}
+
+	// Holds only stay attached while their jersey is still in the cart.
+	function trimHolds() {
+		if (!cart.holds || !cart.holds.length) { return; }
+		var room = {};
+		cart.lines.forEach(function (l) { room[l.id] = l.qty; });
+		cart.holds = cart.holds.filter(function (x) {
+			if ((room[x.variation] || 0) >= x.qty) { room[x.variation] -= x.qty; return true; }
+			return false;
+		});
+	}
+
 	function openDiscount() {
 		var t = totals();
 		var html = '<div class="sheet-head"><h2>Discount</h2><button type="button" class="icon-btn" data-action="close-sheet" aria-label="Close">' + ICON.close + '</button></div>' +
@@ -526,6 +587,7 @@
 	var charge = null;
 
 	function openCharge() {
+		var holdName = cart.holds && cart.holds.length ? (cart.holds[0].customer || '') : '';
 		var t = totals();
 		if (!t.count) { return; }
 		charge = { method: '', total: t.total, quoted: !catalog.taxes, tendered: '' };
@@ -544,9 +606,9 @@
 				'<div class="chips" id="cash-chips"></div>' +
 				'<p class="change" id="change" aria-live="polite"></p>' +
 			'</div>' +
-			'<details class="customer"><summary>Customer details (optional)</summary>' +
+			'<details class="customer"' + (holdName ? ' open' : '') + '><summary>Customer details (optional)</summary>' +
 				'<div class="stack">' +
-					'<label for="c-name">Name</label><input id="c-name" type="text" autocomplete="off">' +
+					'<label for="c-name">Name</label><input id="c-name" type="text" autocomplete="off" value="' + h(holdName) + '">' +
 					'<label for="c-phone">Phone</label><input id="c-phone" type="tel" autocomplete="off">' +
 					'<label for="c-email">Email (we email them the receipt)</label><input id="c-email" type="email" autocomplete="off" autocapitalize="off">' +
 				'</div>' +
@@ -610,10 +672,12 @@
 	}
 
 	function salePayload() {
-		return {
+		var p = {
 			items: cart.lines.map(function (l) { return { id: l.id, qty: l.qty }; }),
 			discount: cart.discount || 0
 		};
+		if (cart.holds && cart.holds.length) { p.holds = cart.holds.map(function (x) { return x.id; }); }
+		return p;
 	}
 
 	function completeSale() {
@@ -935,6 +999,7 @@
 				renderTabs();
 				renderCart();
 				if (tab === 'sales') { renderSales(); }
+				if (tab === 'stock') { openStock(); }
 				break;
 			case 'add':
 				if (byId[id]) { addItem(byId[id]); }
@@ -943,6 +1008,7 @@
 			case 'inc': addItem(byId[id]); break;
 			case 'dec':
 				cart.lines = cart.lines.map(function (l) { if (l.id === id) { l.qty -= 1; } return l; }).filter(function (l) { return l.qty > 0; });
+				trimHolds();
 				saveCart(); renderCart(); renderGridCounts();
 				break;
 			case 'clear-cart':
