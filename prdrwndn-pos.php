@@ -3,7 +3,7 @@
  * Plugin Name:       PRDRWNDN POS
  * Plugin URI:        https://github.com/isshiimwe/prdrwndn-pos
  * Description:       In-person point of sale (installable app at /pos), barcodes and labels for the PRDRWNDN store. Uses WooCommerce stock, so the website and in-person sales share one count.
- * Version:           0.5.1
+ * Version:           0.5.2
  * Author:            PRDRWNDN
  * Requires at least: 6.5
  * Requires PHP:      7.4
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'PRDRWNDN_POS_VERSION', '0.5.1' );
+define( 'PRDRWNDN_POS_VERSION', '0.5.2' );
 define( 'PRDRWNDN_POS_FILE', __FILE__ );
 define( 'PRDRWNDN_POS_BASENAME', plugin_basename( __FILE__ ) );
 define( 'PRDRWNDN_POS_DIR', plugin_dir_path( __FILE__ ) );

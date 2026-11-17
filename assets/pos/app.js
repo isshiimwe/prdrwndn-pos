@@ -212,12 +212,13 @@
 		return { lines: lines, count: count, subtotal: subtotal, discounts: discounts, total: Math.round((subtotal - off) * 100) / 100 };
 	}
 
-	function addItem(it, n) {
+	function addItem(it, n, quiet) {
 		var line = cart.lines.filter(function (l) { return l.id === it.id; })[0];
 		if (line) { line.qty += n || 1; } else { cart.lines.push({ id: it.id, qty: n || 1 }); }
 		saveCart();
 		renderCart();
 		renderGridCounts();
+		if (quiet) { return; }
 		var left = it.stock === null || it.stock === undefined ? '' : ' (' + Math.max(0, it.stock - inCart(it.id)) + ' left)';
 		toast('Added ' + shortName(it.name) + (it.variant ? ', ' + it.variant : '') + left);
 	}
@@ -227,19 +228,27 @@
 		return l ? l.qty : 0;
 	}
 
-	function handleCode(raw) {
+	// done(result) is given by the camera scanner, which shows the result in its own panel.
+	function handleCode(raw, done) {
 		var code = String(raw || '').replace(/[\x00-\x1F\x7F]/g, '').trim();
 		if (!code) { return; }
+		var fail = function (msg) { beep(false); if (done) { done({ ok: false, msg: msg }); } else { toast(msg, true); } };
+		var ok = function (item) { beep(true); addItem(item, 1, !!done); if (done) { done({ ok: true, item: item }); } };
 		var it = findLocal(code);
-		if (it) { beep(true); addItem(it); return; }
-		if (!online) { beep(false); toast('No product has code ' + code, true); return; }
+		if (it) { ok(it); return; }
+		if (!online) { fail('No product has code ' + code); return; }
 		api('lookup?code=' + encodeURIComponent(code)).then(function (p) {
-			if (p.type === 'variable') { beep(true); openPicker(p.id); return; }
+			if (p.type === 'variable') {
+				beep(true);
+				if (done) { stopScanner(); done({ pick: true }); }
+				openPicker(p.id);
+				return;
+			}
 			return loadCatalog(true).then(function () {
 				var fresh = byId[p.id];
-				if (fresh) { beep(true); addItem(fresh); } else { beep(false); toast('That product cannot be sold here yet.', true); }
+				if (fresh) { ok(fresh); } else { fail('That product cannot be sold here yet.'); }
 			});
-		}).catch(function () { beep(false); toast('No product has code ' + code, true); });
+		}).catch(function () { fail('No product has code ' + code); });
 	}
 
 	/* ---------------- Sound ---------------- */
@@ -456,6 +465,7 @@
 			bar.innerHTML = '<span>Cart · ' + t.count + (t.count === 1 ? ' item' : ' items') + '</span><strong>' + money(t.total) + '</strong>';
 		}
 		var sheet = document.getElementById('sheet');
+		if (sheet && !sheet.hidden && sheet.getAttribute('data-kind') === 'scan') { renderScanCart(); }
 		if (sheet && !sheet.hidden && sheet.getAttribute('data-kind') === 'cart') {
 			if (!t.count) { closeSheet(); } else { document.getElementById('sheet-body').innerHTML = cartHTML(t); }
 		}
@@ -917,30 +927,96 @@
 	var scanner = null;
 
 	function openScanner() {
+		// Sound needs a tap to start on iPhone; opening the scanner is that tap.
+		try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.resume) { audio.resume(); } } catch (e) { /* no sound */ }
 		var html = '<div class="sheet-head"><h2>Scan</h2><button type="button" class="icon-btn" data-action="close-sheet" aria-label="Close">' + ICON.close + '</button></div>' +
-			'<div class="scanner"><video id="cam" playsinline muted autoplay></video><div class="scan-frame" aria-hidden="true"></div></div>' +
-			'<p class="muted center" id="scan-note">Point the camera at a barcode. Each item you scan goes into the cart. To add the same item again, move the camera away and back.</p>' +
-			'<button type="button" class="btn btn-primary btn-block" data-action="close-sheet">Done scanning</button>';
+			'<div class="scanner"><video id="cam" playsinline muted autoplay></video><div class="scan-frame" id="scan-frame" aria-hidden="true"></div></div>' +
+			'<div class="scan-result is-idle" id="scan-result" role="status" aria-live="polite"><div class="sr-text"><strong>Point the camera at a barcode</strong><span>New items go straight into the cart. Scanning the same item again asks first.</span></div></div>' +
+			'<div class="scan-cart" id="scan-cart"></div>' +
+			'<button type="button" class="btn btn-primary btn-block" data-action="scan-done" id="scan-done">Done scanning</button>';
 		openSheet('scan', html);
+		renderScanCart();
 		startScanner(document.getElementById('cam')).catch(function (err) {
-			var note = document.getElementById('scan-note');
-			if (note) {
-				note.textContent = /denied|NotAllowed/i.test(String(err && (err.name || err.message)))
-					? 'Camera access is off. Allow the camera for this app in your phone settings, then try again.'
-					: 'The camera could not start: ' + (err && err.message ? err.message : err);
-			}
+			scanShow('bad', '', /denied|NotAllowed/i.test(String(err && (err.name || err.message)))
+				? 'Camera access is off'
+				: 'The camera could not start', /denied|NotAllowed/i.test(String(err && (err.name || err.message)))
+				? 'Allow the camera for this app in your phone settings, then try again.'
+				: String(err && err.message ? err.message : err));
 		});
 	}
 
-	// The same barcode only counts again after it has left the camera for a moment,
-	// so holding the phone still over one item adds it once.
+	// What the camera just did, in the panel under it (a toast is too easy to miss).
+	function scanShow(kind, icon, title, sub, button) {
+		var el = document.getElementById('scan-result');
+		if (!el) { return; }
+		el.className = 'scan-result is-' + kind;
+		el.innerHTML = (icon ? '<span class="sr-icon">' + icon + '</span>' : '') +
+			'<div class="sr-text"><strong>' + h(title) + '</strong>' + (sub ? '<span>' + h(sub) + '</span>' : '') + '</div>' + (button || '');
+		var frame = document.getElementById('scan-frame');
+		if (frame && kind !== 'idle') {
+			frame.className = 'scan-frame is-' + kind;
+			clearTimeout(scanShow.t);
+			scanShow.t = setTimeout(function () { if (frame) { frame.className = 'scan-frame'; } }, 900);
+		}
+	}
+
+	function itemLabel(it) { return shortName(it.name) + (it.variant ? ', ' + it.variant : ''); }
+
+	function scanAdded(it) {
+		var n = inCart(it.id);
+		var over = it.stock !== null && it.stock !== undefined && n > it.stock;
+		scanner.asking = null;
+		scanShow(over ? 'warn' : 'ok', ICON.check, 'Added ' + itemLabel(it),
+			money(it.price) + ' · ' + n + ' in the cart' + (over ? ' · only ' + Math.max(0, it.stock) + ' in stock' : ''),
+			'<button type="button" class="link" data-action="scan-undo" data-id="' + it.id + '">Undo</button>');
+		renderScanCart();
+	}
+
+	function renderScanCart() {
+		var el = document.getElementById('scan-cart');
+		if (!el || !catalog) { return; }
+		var t = totals();
+		el.innerHTML = t.count
+			? '<div class="scan-cart-head"><span>In the cart</span><strong>' + t.count + (t.count === 1 ? ' item' : ' items') + ' · ' + money(t.total) + '</strong></div>' +
+				'<ul>' + t.lines.map(function (l) { return '<li><span>' + l.qty + ' × ' + h(itemLabel(l.item)) + '</span><span>' + money(l.price * l.qty) + '</span></li>'; }).join('') + '</ul>'
+			: '<div class="scan-cart-head"><span class="muted">The cart is empty</span></div>';
+		var btn = document.getElementById('scan-done');
+		if (btn) { btn.textContent = t.count ? 'Done · ' + t.count + (t.count === 1 ? ' item' : ' items') + ' · ' + money(t.total) : 'Done scanning'; }
+	}
+
+	// One read per label: the camera sees the same code many times a second, so it
+	// counts once until it has left the camera. Scanning an item that is already in
+	// the cart asks first, so a label held up twice doesn't sell two.
 	function onScanned(code) {
 		var now = Date.now();
 		if (!scanner) { return; }
 		var same = scanner.last === code && now - scanner.lastAt < 1500;
 		scanner.last = code;
 		scanner.lastAt = now;
-		if (!same) { handleCode(code); }
+		if (same || scanner.busy) { return; }
+		var it = findLocal(code);
+		if (it && scanner.added[it.id] && inCart(it.id) > 0) {
+			if (scanner.asking !== it.id) {
+				scanner.asking = it.id;
+				beep(true);
+				scanShow('ask', '', itemLabel(it) + ' is already in the cart (' + inCart(it.id) + ')',
+					'Scanned the same label again? Only add it if you have another one.',
+					'<button type="button" class="btn btn-primary btn-small" data-action="scan-again" data-id="' + it.id + '">Add another</button>');
+			}
+			return;
+		}
+		scanner.busy = true;
+		handleCode(code, function (res) {
+			if (!scanner) { return; }
+			scanner.busy = false;
+			if (res.ok) {
+				scanner.added[res.item.id] = true;
+				scanAdded(res.item);
+			} else if (!res.pick) {
+				scanner.asking = null;
+				scanShow('bad', '', res.msg, 'Try again, or type the number in the search box.');
+			}
+		});
 	}
 
 	function loadZXing() {
@@ -955,7 +1031,7 @@
 	}
 
 	function startScanner(video) {
-		scanner = { last: '', lastAt: 0, stream: null, timer: null, reader: null };
+		scanner = { last: '', lastAt: 0, stream: null, timer: null, reader: null, added: {}, asking: null, busy: false };
 		var formats = ['upc_a', 'ean_13', 'code_128', 'upc_e', 'ean_8'];
 		var useNative = 'BarcodeDetector' in window;
 		var nativeCheck = useNative && window.BarcodeDetector.getSupportedFormats
@@ -1096,6 +1172,24 @@
 				if (q && window.matchMedia('(min-width: 900px)').matches) { q.focus(); }
 				break;
 			case 'scan': openScanner(); break;
+			case 'scan-again':
+				if (byId[id] && scanner) { beep(true); addItem(byId[id], 1, true); scanAdded(byId[id]); }
+				break;
+			case 'scan-undo':
+				if (byId[id]) {
+					cart.lines = cart.lines.map(function (l) { if (l.id === id) { l.qty -= 1; } return l; }).filter(function (l) { return l.qty > 0; });
+					trimHolds();
+					saveCart(); renderCart(); renderGridCounts();
+					if (scanner && !inCart(id)) { delete scanner.added[id]; }
+					if (scanner) { scanner.asking = null; scanner.last = ''; }
+					scanShow('idle', '', 'Removed one ' + itemLabel(byId[id]), inCart(id) ? inCart(id) + ' still in the cart' : 'Point the camera at the next barcode.');
+					renderScanCart();
+				}
+				break;
+			case 'scan-done':
+				closeSheet();
+				if (cart.lines.length && !window.matchMedia('(min-width: 900px)').matches) { openCart(); }
+				break;
 			case 'menu': openMenu(); break;
 			case 'face-on': faceOn(); break;
 			case 'face-off': faceOff(); break;

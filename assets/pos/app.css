@@ -229,7 +229,28 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 
 .scanner { position: relative; margin-top: 10px; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
 .scanner video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.scan-frame { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 3px solid var(--flag-yellow); border-radius: 10px; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.25); }
+.scan-frame { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 3px solid var(--flag-yellow); border-radius: 10px; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.25); transition: border-color 0.15s, box-shadow 0.15s; }
+.scan-frame.is-ok { border-color: #2fbf71; box-shadow: 0 0 0 999px rgba(20, 110, 60, 0.45); }
+.scan-frame.is-warn, .scan-frame.is-ask { border-color: #f0b429; box-shadow: 0 0 0 999px rgba(120, 80, 0, 0.4); }
+.scan-frame.is-bad { border-color: #e05252; box-shadow: 0 0 0 999px rgba(130, 20, 20, 0.45); }
+.scanner { aspect-ratio: 16 / 10; }
+.scan-result { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 12px 14px; min-height: 68px; border-radius: 12px; border: 1.5px solid var(--line); background: #fff; }
+.scan-result .sr-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scan-result .sr-text strong { font-size: 17px; line-height: 1.25; }
+.scan-result .sr-text span { font-size: 14px; color: var(--muted); }
+.scan-result .sr-icon { flex: none; display: inline-flex; width: 36px; height: 36px; border-radius: 50%; align-items: center; justify-content: center; background: #1b7a45; }
+.scan-result .sr-icon svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.scan-result.is-ok { background: #e3f4ea; border-color: #9fd3b3; }
+.scan-result.is-warn { background: #fff4d6; border-color: #f0c869; }
+.scan-result.is-warn .sr-icon { background: #9a6a00; }
+.scan-result.is-ask { background: #fff4d6; border-color: #f0c869; }
+.scan-result.is-bad { background: var(--bad-bg); border-color: #e9a3a3; }
+.scan-result.is-bad strong { color: var(--bad); }
+.btn-small { min-height: 40px; padding: 8px 14px; font-size: 15px; flex: none; }
+.scan-cart { margin: 10px 0 12px; font-size: 14px; }
+.scan-cart-head { display: flex; justify-content: space-between; gap: 8px; padding: 2px 2px 4px; }
+.scan-cart ul { list-style: none; margin: 0; padding: 0; max-height: 120px; overflow-y: auto; }
+.scan-cart li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 2px; border-top: 1px dashed var(--line); }
 
 /* Today */
 .sales-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

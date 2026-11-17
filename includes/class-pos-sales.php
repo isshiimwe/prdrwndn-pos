@@ -39,6 +39,13 @@ class PRDRWNDN_POS_Sales {
 	/* Deals                                                               */
 	/* ------------------------------------------------------------------ */
 
+	const OPT_TAX = 'prdrwndn_pos_tax';
+
+	/** Sales tax on POS sales: only when switched on in POS settings and WooCommerce taxes are on. */
+	public static function charge_tax() {
+		return 'yes' === get_option( self::OPT_TAX, 'no' ) && wc_tax_enabled();
+	}
+
 	/**
 	 * Saved deal rules: "any N items from a category for $X".
 	 *
@@ -192,7 +199,7 @@ class PRDRWNDN_POS_Sales {
 				'methods'     => self::METHODS,
 				'currency'    => html_entity_decode( get_woocommerce_currency_symbol(), ENT_QUOTES, 'UTF-8' ),
 				'decimals'    => wc_get_price_decimals(),
-				'taxes'       => wc_tax_enabled(),
+				'taxes'       => self::charge_tax(),
 				'canDiscount' => current_user_can( PRDRWNDN_POS_Roles::CAP_MANAGE ),
 				'user'        => $user->display_name,
 				'updated'     => time(),
@@ -285,7 +292,9 @@ class PRDRWNDN_POS_Sales {
 			$order->set_billing_email( $email ); // WooCommerce emails the receipt when the order completes.
 		}
 
-		$order->calculate_taxes( self::store_location() );
+		if ( self::charge_tax() ) {
+			$order->calculate_taxes( self::store_location() );
+		}
 		$order->calculate_totals( false );
 
 		$label = self::METHODS[ $method ];
@@ -438,7 +447,7 @@ class PRDRWNDN_POS_Sales {
 		$off       = array_sum( wp_list_pluck( $discounts, 'amount' ) );
 		$off       = min( $off, $subtotal );
 		$tax       = 0.0;
-		if ( wc_tax_enabled() && ! wc_prices_include_tax() && $subtotal > 0 ) {
+		if ( self::charge_tax() && ! wc_prices_include_tax() && $subtotal > 0 ) {
 			$ratio = ( $subtotal - $off ) / $subtotal;
 			foreach ( $cart['lines'] as $l ) {
 				if ( 'taxable' !== $l['product']->get_tax_status() ) {

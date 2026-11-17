@@ -431,6 +431,21 @@ class PRDRWNDN_POS_Admin {
 					</tr>
 				</table>
 
+				<h2><?php esc_html_e( 'Sales tax', 'prdrwndn-pos' ); ?></h2>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php esc_html_e( 'POS sales', 'prdrwndn-pos' ); ?></th>
+						<td><label><input type="checkbox" name="pos_tax" value="1" <?php checked( 'yes' === get_option( PRDRWNDN_POS_Sales::OPT_TAX, 'no' ) ); ?>> <?php esc_html_e( 'Charge sales tax on in-person sales', 'prdrwndn-pos' ); ?></label>
+						<p class="description">
+							<?php
+							echo wc_tax_enabled()
+								? esc_html__( 'Uses your WooCommerce tax rates for the store address. Off means POS prices are the final price. Website orders are not affected.', 'prdrwndn-pos' )
+								: esc_html__( 'Taxes are switched off in WooCommerce, so nothing is charged either way.', 'prdrwndn-pos' );
+							?>
+						</p></td>
+					</tr>
+				</table>
+
 				<h2><?php esc_html_e( 'Deals in the POS', 'prdrwndn-pos' ); ?></h2>
 				<p><?php esc_html_e( 'Bundle prices the POS applies by itself, for example any 2 jerseys for $80. Put the products in a category (like Jerseys), then add the deal here. Leave a row empty to remove it.', 'prdrwndn-pos' ); ?></p>
 				<?php
@@ -551,6 +566,8 @@ class PRDRWNDN_POS_Admin {
 				'printer'    => sanitize_text_field( wp_unslash( $_POST['printer'] ?? '' ) ),
 			)
 		);
+
+		update_option( PRDRWNDN_POS_Sales::OPT_TAX, empty( $_POST['pos_tax'] ) ? 'no' : 'yes', false );
 
 		$deals  = array();
 		$labels = (array) wp_unslash( $_POST['deal_label'] ?? array() ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput

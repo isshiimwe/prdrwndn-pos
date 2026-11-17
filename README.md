@@ -15,7 +15,11 @@ and labels, all tied to WooCommerce stock so the website and in-person sales sha
   Google", or a Client ID pasted in POS settings. Add `https://proudrwandan.com/pos/` under
   Authorized redirect URIs on that Google OAuth client. Google only lets in an email that
   matches a store account with POS access; it never creates accounts. Passwords keep working.
-- Scan with the phone camera, a Bluetooth/USB barcode scanner, or type a number.
+- Scan with the phone camera, a Bluetooth/USB barcode scanner, or type a number. The camera
+  screen shows each result under the camera (added, not found, past stock) and the cart so
+  far. Scanning an item that's already in the cart asks "Add another" instead of adding it.
+- Sales tax on POS sales is off by default (prices are final). Switch it on in
+  PRDRWNDN POS > Settings > Sales tax; it then uses the WooCommerce rates for the store address.
 - Deals apply by themselves (set them in PRDRWNDN POS > Settings > Deals in the POS).
 - Charge: Cash (with change), Zelle, Cash App, Apple Pay, Other. Each sale is saved as a
   completed WooCommerce order paid "in person" and takes the items out of stock.
