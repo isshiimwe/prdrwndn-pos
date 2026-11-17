@@ -273,6 +273,7 @@ self.addEventListener('fetch', function (e) {
 				'zxing'     => $a['zxing'],
 				'logo'      => $a['logo_light'],
 				'stock'     => PRDRWNDN_POS_Stock::can(),
+				'passkeys'  => count( PRDRWNDN_POS_Passkeys::all( $user->ID ) ),
 				'stockCss'  => $a['stock_css'],
 				'font'      => $a['font'],
 			);
@@ -309,6 +310,13 @@ self.addEventListener('fetch', function (e) {
 			<?php if ( ! empty( $args['error'] ) ) : ?>
 		<p class="gate-error" role="alert"><?php echo esc_html( $args['error'] ); ?></p>
 		<?php endif; ?>
+		<div class="gate-face" id="gate-face" hidden>
+			<button type="button" class="btn btn-primary btn-block btn-face" id="face-btn">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2M9 9v1M15 9v1M12 9v4h-1M9 16c1.6 1.3 4.4 1.3 6 0"/></svg>
+				<span id="face-label"><?php esc_html_e( 'Sign in with Face ID', 'prdrwndn-pos' ); ?></span>
+			</button>
+			<p class="gate-error" id="face-msg" role="alert" hidden></p>
+		</div>
 			<?php if ( $gnonce ) : ?>
 		<div class="gate-google" id="gate-google">
 			<div id="g_id_onload"
@@ -318,10 +326,56 @@ self.addEventListener('fetch', function (e) {
 				data-nonce="<?php echo esc_attr( $gnonce ); ?>"
 				data-auto_prompt="false"></div>
 			<div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="signin_with" data-shape="pill" data-logo_alignment="center" data-width="280"></div>
-			<p class="gate-or"><span><?php esc_html_e( 'or use your password', 'prdrwndn-pos' ); ?></span></p>
 		</div>
-		<script src="https://accounts.google.com/gsi/client" async onload="document.getElementById('gate-google').classList.add('is-ready')"></script>
+		<script src="https://accounts.google.com/gsi/client" async onload="document.getElementById('gate-google').classList.add('is-ready');document.getElementById('gate-or').hidden=false"></script>
 			<?php endif; ?>
+		<p class="gate-or" id="gate-or" hidden><span><?php esc_html_e( 'or use your password', 'prdrwndn-pos' ); ?></span></p>
+		<script>
+		(function () {
+			var REST = <?php echo wp_json_encode( esc_url_raw( rest_url( PRDRWNDN_POS_REST::NS . '/' ) ), JSON_UNESCAPED_SLASHES ); ?>;
+			var HOME = <?php echo wp_json_encode( self::url(), JSON_UNESCAPED_SLASHES ); ?>;
+			if (!window.PublicKeyCredential || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable || !window.fetch) { return; }
+			var ua = navigator.userAgent;
+			var ios = /iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+			var name = ios ? 'Face ID' : /Macintosh/.test(ua) ? 'Touch ID' : /Android/.test(ua) ? 'fingerprint' : 'passkey';
+			var box = document.getElementById('gate-face'), btn = document.getElementById('face-btn'), msg = document.getElementById('face-msg');
+			function b64u(buf) { var s = ''; new Uint8Array(buf).forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+			function unb64u(s) { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) { s += '='; } var bin = atob(s), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) { out[i] = bin.charCodeAt(i); } return out.buffer; }
+			function post(path, body) {
+				return fetch(REST + path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
+					.then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) { throw new Error(d.message || 'Sign-in didn\'t work.'); } return d; }); });
+			}
+			function say(t) { msg.textContent = t; msg.hidden = !t; }
+			PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(function (ok) {
+				if (!ok) { return; }
+				document.getElementById('face-label').textContent = 'Sign in with ' + name;
+				box.hidden = false;
+				document.getElementById('gate-or').hidden = false;
+			}, function () {});
+			btn.addEventListener('click', function () {
+				say('');
+				btn.disabled = true;
+				var token;
+				post('passkey/login-options').then(function (res) {
+					token = res.token;
+					var o = res.options;
+					return navigator.credentials.get({ publicKey: { challenge: unb64u(o.challenge), rpId: o.rpId, userVerification: o.userVerification, timeout: o.timeout, allowCredentials: [] } });
+				}).then(function (cred) {
+					var r = cred.response;
+					return post('passkey/login', { token: token, id: cred.id, clientDataJSON: b64u(r.clientDataJSON), authenticatorData: b64u(r.authenticatorData), signature: b64u(r.signature), userHandle: r.userHandle ? b64u(r.userHandle) : '' });
+				}).then(function () {
+					location.replace(HOME);
+				}).catch(function (e) {
+					btn.disabled = false;
+					if (e && e.name === 'NotAllowedError') {
+						say(name + ' was cancelled, or there is no ' + name + ' sign-in for this site on this device yet. Sign in with your password, then turn on ' + name + ' in the menu.');
+					} else {
+						say((e && e.message) || 'Sign-in didn\'t work.');
+					}
+				});
+			});
+		})();
+		</script>
 		<form method="post" action="<?php echo esc_url( self::url() ); ?>" class="gate-form">
 			<?php wp_nonce_field( 'prdrwndn_pos_login' ); ?>
 			<input type="hidden" name="prdpos_login" value="1">

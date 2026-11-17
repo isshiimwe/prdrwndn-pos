@@ -8,6 +8,9 @@ and labels, all tied to WooCommerce stock so the website and in-person sales sha
 - Installable app (PWA) for iPhone, Android and tablets. On iPhone: open the page in
   Safari, Share, Add to Home Screen. Updates reach installed copies by themselves.
 - Sign in with a WordPress account that is an Administrator, Shop Manager or POS Cashier.
+- Sign in with Face ID / Touch ID (passkeys): turn it on once in the POS menu after signing in.
+  It uses the same saved passkeys as the PRDRWNDN shop app (user meta `_prd_passkeys`), so
+  Face ID set up in either app works in both. Only accounts with POS access get in.
 - Sign in with Google (optional): uses the Google setup from Site Kit's "Sign in with
   Google", or a Client ID pasted in POS settings. Add `https://proudrwandan.com/pos/` under
   Authorized redirect URIs on that Google OAuth client. Google only lets in an email that

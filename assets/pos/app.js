@@ -839,6 +839,54 @@
 	var installEvent = null;
 	window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installEvent = e; });
 
+	/* ---------------- Face ID (passkeys, shared with the shop app) ---------------- */
+
+	var bio = { ok: false, name: 'Face ID' };
+	(function () {
+		var ua = navigator.userAgent;
+		var ios = /iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+		bio.name = ios ? 'Face ID' : /Macintosh/.test(ua) ? 'Touch ID' : /Android/.test(ua) ? 'fingerprint' : 'passkey';
+		if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
+			PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(function (ok) { bio.ok = !!ok; }, function () {});
+		}
+	})();
+	function b64u(buf) { var s = ''; new Uint8Array(buf).forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+	function unb64u(s) { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) { s += '='; } var bin = atob(s), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) { out[i] = bin.charCodeAt(i); } return out.buffer; }
+
+	function faceOn() {
+		if (!online) { toast('Turning on ' + bio.name + ' needs the internet.', true); return; }
+		api('passkey/register-options', { method: 'POST', body: '{}' }).then(function (o) {
+			return navigator.credentials.create({ publicKey: {
+				challenge: unb64u(o.challenge), rp: o.rp,
+				user: { id: unb64u(o.user.id), name: o.user.name, displayName: o.user.displayName },
+				pubKeyCredParams: o.pubKeyCredParams, authenticatorSelection: o.authenticatorSelection,
+				attestation: o.attestation, timeout: o.timeout,
+				excludeCredentials: (o.excludeCredentials || []).map(function (c) { return { type: 'public-key', id: unb64u(c.id) }; })
+			} });
+		}).then(function (cred) {
+			var r = cred.response;
+			var device = /iphone/i.test(navigator.userAgent) ? 'iPhone' : /ipad/i.test(navigator.userAgent) ? 'iPad' : (navigator.platform || '');
+			return api('passkey/register', { method: 'POST', body: JSON.stringify({ id: cred.id, clientDataJSON: b64u(r.clientDataJSON), attestationObject: b64u(r.attestationObject), device: 'POS ' + device }) });
+		}).then(function (res) {
+			C.passkeys = res.count;
+			closeSheet();
+			toast(bio.name + ' is on. Next time, tap Sign in with ' + bio.name + '.');
+		}).catch(function (e) {
+			if (e && e.name === 'InvalidStateError') { C.passkeys = Math.max(1, C.passkeys || 0); closeSheet(); toast(bio.name + ' is already on for this device.'); return; }
+			if (e && e.name === 'NotAllowedError') { toast(bio.name + ' was cancelled.', true); return; }
+			toast((e && e.message) || ('Couldn\'t turn on ' + bio.name + '.'), true);
+		});
+	}
+
+	function faceOff() {
+		if (!window.confirm('Turn off ' + bio.name + ' for your account? It also turns off in the PRDRWNDN shop app. You can turn it on again any time.')) { return; }
+		api('passkeys', { method: 'DELETE' }).then(function () {
+			C.passkeys = 0;
+			closeSheet();
+			toast(bio.name + ' is off. Sign in with your password or Google.');
+		}, function (e) { toast(e.message || 'Couldn\'t turn it off.', true); });
+	}
+
 	function openMenu() {
 		var standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 		var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -856,6 +904,8 @@
 				(queue.length ? '<button type="button" class="btn btn-block" data-action="sync">Upload ' + queue.length + ' waiting ' + (queue.length === 1 ? 'sale' : 'sales') + '</button>' : '') +
 				(C.labelsUrl ? '<a class="btn btn-block" href="' + h(C.labelsUrl) + '" target="_blank" rel="noopener">Print labels (opens WordPress)</a>' : '') +
 				install +
+				(bio.ok ? '<div class="face-row"><div><strong>Sign in with ' + h(bio.name) + '</strong><span class="muted small">' + (C.passkeys ? 'On for your account. Works in the shop app too.' : 'Off. Turn it on to skip the password next time.') + '</span></div>' +
+					'<button type="button" class="btn' + (C.passkeys ? '' : ' btn-primary') + '" data-action="' + (C.passkeys ? 'face-off' : 'face-on') + '">' + (C.passkeys ? 'Turn off' : 'Turn on') + '</button></div>' : '') +
 				'<a class="btn btn-block" href="' + h(C.logout) + '" data-action="logout">Sign out</a>' +
 				'<p class="muted small">App version ' + h(C.build) + (catalog ? ' · products updated ' + new Date(catalog.updated * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '') + '</p>' +
 			'</div>';
@@ -1047,6 +1097,8 @@
 				break;
 			case 'scan': openScanner(); break;
 			case 'menu': openMenu(); break;
+			case 'face-on': faceOn(); break;
+			case 'face-off': faceOff(); break;
 			case 'sync':
 				if (!queue.length) { toast(online ? 'Everything is uploaded.' : 'Offline right now.'); break; }
 				toast('Uploading...');

@@ -76,7 +76,13 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .gate-google .g_id_signin { display: flex; justify-content: center; min-height: 44px; }
 .gate-or { display: flex; align-items: center; gap: 10px; margin: 18px 0 0; color: var(--muted, #6b6b6b); font-size: 13px; }
 .gate-or::before, .gate-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.gate-google + .gate-form { margin-top: 6px; }
+.gate-or + .gate-form { margin-top: 6px; }
+.gate-or[hidden], .gate-face[hidden] { display: none; }
+.gate-face { margin-top: 18px; }
+.btn-face { display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+.gate-face + .gate-google.is-ready { margin-top: 12px; }
+.face-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 12px; background: #fff; }
+.face-row > div { display: flex; flex-direction: column; gap: 2px; }
 .gate-logo { display: block; width: 200px; max-width: 70%; height: auto; margin: 0 auto; }
 .gate-tag { margin: 10px 0 2px; }
 .pos-tag { display: inline-block; background: #FFD24A; color: var(--green); border-radius: 999px; padding: 3px 10px 2px; font-weight: 900; font-size: 13px; letter-spacing: 2px; line-height: 1.2; }
