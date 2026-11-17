@@ -59,13 +59,16 @@ Silent printing (no permission prompt each time): see PRDRWNDN POS > Settings.
 
 ## Releasing an update (GitHub: isshiimwe/prdrwndn-pos)
 
+The repo root is the plugin folder. The site looks for the newest version on GitHub,
+either a release or a plain version tag.
+
 1. Change the version in **both** places in `prdrwndn-pos.php`
    (the `Version:` header and `PRDRWNDN_POS_VERSION`).
-2. Zip the folder so the zip contains `prdrwndn-pos/` at the top level.
-3. Create a GitHub release with the tag set to the version (for example `v0.1.1`).
-4. Attach `prdrwndn-pos.zip` under Assets. Do not rely on GitHub's auto-generated
-   source zip.
-5. In WordPress: Dashboard > Updates > Check Again, then update.
+2. Commit, push, and push a tag named after the version (for example `v0.4.3`).
+   A GitHub release is optional. If a release has `prdrwndn-pos.zip` attached, the site
+   uses that zip; otherwise it uses GitHub's own code zip and renames the folder.
+3. In WordPress: Dashboard > Updates > Check again, then update. The site also checks
+   by itself every few hours.
 
 For a private repo, add `define( 'PRDRWNDN_POS_GITHUB_TOKEN', '...' );` to wp-config.php.
 

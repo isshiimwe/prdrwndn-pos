@@ -34,7 +34,7 @@ class PRDRWNDN_POS_Updater {
 	}
 
 	/**
-	 * Latest release with an attached zip, cached for 6 hours.
+	 * Newest version on GitHub (a release, or a vX.Y.Z tag), cached for 6 hours.
 	 *
 	 * @return array|null version, zip, url, notes, published.
 	 */
@@ -50,22 +50,48 @@ class PRDRWNDN_POS_Updater {
 		if ( defined( 'PRDRWNDN_POS_GITHUB_TOKEN' ) && PRDRWNDN_POS_GITHUB_TOKEN ) {
 			$headers['Authorization'] = 'Bearer ' . PRDRWNDN_POS_GITHUB_TOKEN;
 		}
-		$res  = wp_remote_get( 'https://api.github.com/repos/' . self::REPO . '/releases/latest', array( 'headers' => $headers, 'timeout' => 10 ) );
+		$api  = 'https://api.github.com/repos/' . self::REPO;
+		$args = array( 'headers' => $headers, 'timeout' => 10 );
 		$data = array();
+
+		// 1. The latest release: its prdrwndn-pos.zip, or else GitHub's own code zip.
+		$res = wp_remote_get( $api . '/releases/latest', $args );
 		if ( ! is_wp_error( $res ) && 200 === wp_remote_retrieve_response_code( $res ) ) {
 			$json = json_decode( wp_remote_retrieve_body( $res ), true );
 			if ( is_array( $json ) && ! empty( $json['tag_name'] ) ) {
+				$zip = '';
 				foreach ( (array) ( $json['assets'] ?? array() ) as $asset ) {
 					if ( self::ASSET === ( $asset['name'] ?? '' ) ) {
-						$data = array(
-							'version'   => ltrim( $json['tag_name'], 'vV' ),
-							'zip'       => $asset['browser_download_url'],
-							'url'       => $json['html_url'] ?? '',
-							'notes'     => $json['body'] ?? '',
-							'published' => $json['published_at'] ?? '',
-						);
+						$zip = $asset['browser_download_url'];
 						break;
 					}
+				}
+				$data = array(
+					'version'   => ltrim( $json['tag_name'], 'vV' ),
+					'zip'       => $zip ? $zip : self::tag_zip( $json['tag_name'] ),
+					'url'       => $json['html_url'] ?? '',
+					'notes'     => $json['body'] ?? '',
+					'published' => $json['published_at'] ?? '',
+				);
+			}
+		}
+
+		// 2. A version tag newer than the latest release (vX.Y.Z), using GitHub's code zip.
+		$res = wp_remote_get( $api . '/tags?per_page=50', $args );
+		if ( ! is_wp_error( $res ) && 200 === wp_remote_retrieve_response_code( $res ) ) {
+			foreach ( (array) json_decode( wp_remote_retrieve_body( $res ), true ) as $tag ) {
+				$name = (string) ( $tag['name'] ?? '' );
+				if ( ! preg_match( '/^v?(\d+\.\d+(?:\.\d+)?)$/', $name, $m ) ) {
+					continue;
+				}
+				if ( empty( $data['version'] ) || version_compare( $m[1], $data['version'], '>' ) ) {
+					$data = array(
+						'version'   => $m[1],
+						'zip'       => self::tag_zip( $name ),
+						'url'       => 'https://github.com/' . self::REPO . '/releases/tag/' . rawurlencode( $name ),
+						'notes'     => '',
+						'published' => '',
+					);
 				}
 			}
 		}
@@ -135,6 +161,11 @@ class PRDRWNDN_POS_Updater {
 			return $wanted;
 		}
 		return new WP_Error( 'prdrwndn_pos_folder', __( 'The update zip has the wrong folder name. Attach prdrwndn-pos.zip to the release.', 'prdrwndn-pos' ) );
+	}
+
+	/** GitHub's own zip of the code at a tag (its folder is renamed to prdrwndn-pos on install). */
+	private static function tag_zip( $tag ) {
+		return 'https://github.com/' . self::REPO . '/archive/refs/tags/' . rawurlencode( $tag ) . '.zip';
 	}
 
 	public static function clear() {
