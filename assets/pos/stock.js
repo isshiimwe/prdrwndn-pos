@@ -459,7 +459,7 @@
         ["Paid in · " + paidQty + " jersey" + (paidQty === 1 ? "" : "s"), money(gross)],
         posQty ? ["Of those, rung up in the POS", String(posQty)] : null,
         webQty ? ["Of those, from the website", String(webQty)] : null,
-        dealCount ? ["Two-jersey orders", String(dealCount)] : null,
+        dealCount ? ["Orders of 2 or more jerseys", String(dealCount)] : null,
         fees > 0 ? ["Payment fees (est.)", "-" + money(fees)] : null,
         ["Costs paid out", "-" + money(totalCost)],
         [position >= 0 ? "Profit so far" : "Still to earn back", money(position), position >= 0 ? "pos" : "neg", "total"]
@@ -540,14 +540,17 @@
   const viaOf = (r) => {
     if (r.pos) return "POS sale #" + r.orderNo + (r.payment ? " (" + r.payment + ")" : "");
     if (r.web) return "Website order #" + r.orderNo + (r.payment ? " (" + r.payment + ")" : "");
+    if (r.from) return "Not paid yet from POS sale #" + r.from;
     return r.payment && r.payment !== r.channel && r.payment !== "Card" ? String(r.channel || "") + " (" + String(r.payment) + ")" : String(r.channel || "");
   };
+  // Who rang it up (POS) or logged it (here).
+  const byOf = (r) => { const who = r.pos ? r.cashier : r.by; return who ? "by " + String(who) : ""; };
   const whenOf = (r) => isHold(r) && !r.web ? "Held " + fmtDate(r.date) : (r.heldDate ? "Held " + fmtDate(r.heldDate) + " · picked up " + fmtDate(r.date) : fmtDate(r.date));
 
   function saleCard(r) {
     const d = DESIGNS.find((x) => x.id === r.design);
     const qty = Number(r.qty) || 0, price = Number(r.price) || 0, held = isHold(r);
-    const meta = [whenOf(r), viaOf(r), r.customer ? String(r.customer) : ""].filter(Boolean).join(" · ");
+    const meta = [whenOf(r), viaOf(r), r.customer ? String(r.customer) : "", byOf(r)].filter(Boolean).join(" · ");
     return h("article", { class: "sale" + (held ? " isheld" : "") + (r.web ? " isweb" : "") },
       h("div", { class: "what" },
         h("span", { class: "chip " + (d ? d.id : ""), text: d ? d.name : String(r.design || "?") }),
@@ -582,16 +585,35 @@
     await run("update", { id: r.id, patch: { design: dft.design, size: dft.size } }, "Changed to " + nameOf(dft.design) + " " + dft.size + ".");
   }
   function pillClass(r) { return isHold(r) ? "hold" : (isToShip(r) || r.status === "To pick up") ? "toship" : "done"; }
-  function lineCtl(r) {
+  // A jersey rung up in the POS that wasn't paid for yet: it comes out of the sale and is held for the customer.
+  function unpaidBtn(r) {
+    if (!r.pos || isHold(r)) return null;
+    const key = "unpaid:" + r.id, armed = ui.armed === key, many = (Number(r.qty) || 1) > 1;
+    return h("button", {
+      type: "button", class: "ghost hold" + (armed ? " armed" : ""),
+      text: armed ? "Tap again to hold " + (many ? "1" : "it") : (many ? "1 not paid yet · hold it" : "Not paid yet · hold it"),
+      "aria-label": "Not paid yet: hold " + nameOf(r.design) + " " + r.size + (r.customer ? " for " + r.customer : ""),
+      onclick: () => holdUnpaid(r)
+    });
+  }
+  async function holdUnpaid(r) {
+    const key = "unpaid:" + r.id;
+    if (ui.armed !== key) { arm(key); return; }
+    ui.armed = null; clearTimeout(armTimer);
+    await run("unpaid", { id: r.id, qty: 1 }, nameOf(r.design) + " " + r.size + " is on hold for " + (r.customer || "the customer") + ". POS sale #" + r.orderNo + " now shows only what was paid.");
+  }
+  function lineCtl(r, inBundle) {
     if (r.web) {
       return h("div", { class: "ctl" },
         h("span", { class: "pill " + pillClass(r), text: r.status }),
+        r.bundleId ? null : unpaidBtn(r),
         r.orderUrl ? h("a", { class: "ghost", href: r.orderUrl, target: "_blank", rel: "noopener", text: "Open order #" + r.orderNo }) : null);
     }
     if (ui.editing === r.id && ui.draft) return editor(r);
     const held = isHold(r);
     const ctl = h("div", { class: "ctl" }, h("span", { class: "pill " + pillClass(r), text: r.status || "To ship" }));
-    if (held && opts.ringUp) ctl.append(h("button", { type: "button", class: "primary small", text: r.bundleId ? "Ring up both" : "Ring up", onclick: () => ringUp(r) }));
+    const together = inBundle ? heldWith(r).length : 1;
+    if (held && opts.ringUp) ctl.append(h("button", { type: "button", class: together > 1 ? "ghost go" : "primary small", text: together > 1 ? "Ring up this one" : "Ring up", onclick: () => ringUp(r, true) }));
     if (held) ctl.append(h("button", { type: "button", class: "ghost go", text: "Paid already · picked up", onclick: () => run("update", { id: r.id, patch: { status: "Picked up", heldDate: r.date || todayStr(), date: todayStr() } }) }));
     if (r.status === "To ship") ctl.append(h("button", { type: "button", class: "ghost go", text: "Mark shipped", onclick: () => run("update", { id: r.id, patch: { status: "Shipped" } }) }));
     if (r.status === "Shipped") ctl.append(h("button", { type: "button", class: "ghost", text: "Back to “To ship”", onclick: () => run("update", { id: r.id, patch: { status: "To ship" } }) }));
@@ -601,12 +623,17 @@
     ctl.append(h("button", { type: "button", class: "ghost danger" + (armed ? " armed" : ""), text: armed ? "Tap again to " + (held ? "cancel" : "delete") : (held ? "Cancel hold" : "Delete"), onclick: () => removeSale(r.id) }));
     return ctl;
   }
+  const heldWith = (r) => r.bundleId ? sales.filter((x) => x.bundleId === r.bundleId && isHold(x) && !x.web) : [r];
   function bundleCard(rows) {
     const first = rows[0];
+    const heldRows = first.web ? [] : rows.filter(isHold);
+    const all = heldRows.length > 1 && opts.ringUp ? h("div", { class: "ctl" }, h("button", {
+      type: "button", class: "primary small", text: heldRows.length === 2 ? "Ring up both" : "Ring up all " + heldRows.length, onclick: () => ringUp(heldRows[0], false)
+    })) : null;
     const sum = (list) => list.reduce((a, r) => a + (Number(r.price) || 0) * (Number(r.qty) || 0), 0);
     const total = sum(rows), due = sum(rows.filter(isHold));
     const count = rows.reduce((a, r) => a + (Number(r.qty) || 0), 0);
-    const meta = [viaOf(first), first.customer ? String(first.customer) : ""].filter(Boolean).join(" · ");
+    const meta = [viaOf(first), first.customer ? String(first.customer) : "", byOf(first)].filter(Boolean).join(" · ");
     return h("article", { class: "sale bundle" + (due ? " isheld" : "") + (first.web ? " isweb" : "") },
       h("div", { class: "what" }, h("span", { class: "chip deal", text: count + " for " + money0(total) })),
       h("div", { class: "amt" }, money0(total), due ? h("small", { text: money0(due) + (first.web ? " not paid yet" : " due at pickup") }) : null),
@@ -618,14 +645,14 @@
             h("span", { class: "chip " + (d ? d.id : ""), text: d ? d.name : String(r.design || "?") }),
             h("span", { class: "size", text: String(r.size || "?") + ((Number(r.qty) || 1) !== 1 ? " × " + r.qty : "") }),
             h("span", { class: "when", text: whenOf(r) })),
-          first.web ? null : lineCtl(r));
+          first.web ? (first.pos && !isHold(r) ? h("div", { class: "ctl" }, unpaidBtn(r)) : null) : lineCtl(r, true));
       })),
-      first.web ? lineCtl(first) : null);
+      first.web ? lineCtl(first) : all);
   }
 
   /* ── POS ───────────────────────────────────────── */
-  function ringUp(r) {
-    const rows = r.bundleId ? sales.filter((x) => x.bundleId === r.bundleId && isHold(x) && !x.web) : [r];
+  function ringUp(r, only) {
+    const rows = only ? [r] : heldWith(r);
     const map = (store && store.map) || {};
     const missing = rows.filter((x) => !(map[x.design] && map[x.design][x.size]));
     if (missing.length) { flash(missing.map((x) => nameOf(x.design) + " " + x.size).join(", ") + " isn't on the website, so the POS can't ring it up. Use \u201cPaid already\u201d instead.", true); return; }

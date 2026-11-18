@@ -202,10 +202,29 @@
 		return out;
 	}
 
+	// Jersey holds in the cart are charged what they were held at (their deal or discount stays with them) and sit out the deals.
+	function heldUnits() {
+		var room = {}, out = { qty: {}, off: 0 };
+		cart.lines.forEach(function (l) { room[l.id] = (room[l.id] || 0) + l.qty; });
+		(cart.holds || []).forEach(function (x) {
+			if ((room[x.variation] || 0) < x.qty) { return; }
+			room[x.variation] -= x.qty;
+			out.qty[x.variation] = (out.qty[x.variation] || 0) + x.qty;
+			var it = byId[x.variation];
+			out.off += Math.max(0, (it ? Number(it.price) || 0 : 0) - (Number(x.price) || 0)) * x.qty;
+		});
+		out.off = Math.round(out.off * 100) / 100;
+		return out;
+	}
+
 	function totals() {
 		var lines = cartLines();
 		var subtotal = lines.reduce(function (a, l) { return a + l.price * l.qty; }, 0);
-		var discounts = dealDiscounts(lines);
+		var held = heldUnits();
+		var discounts = dealDiscounts(lines.map(function (l) {
+			return { item: l.item, qty: l.qty - (held.qty[l.item.id] || 0), price: l.price, cats: l.cats };
+		}).filter(function (l) { return l.qty > 0; }));
+		if (held.off > 0) { discounts.push({ label: 'Held price', amount: held.off }); }
 		if (cart.discount > 0) { discounts.push({ label: 'Discount', amount: cart.discount }); }
 		var off = Math.min(subtotal, discounts.reduce(function (a, d) { return a + d.amount; }, 0));
 		var count = lines.reduce(function (a, l) { return a + l.qty; }, 0);

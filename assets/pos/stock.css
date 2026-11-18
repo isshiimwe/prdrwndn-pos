@@ -177,6 +177,8 @@
 #prd-stock .ghost.go { border-color: var(--green); color: var(--green); }
 #prd-stock .ghost.danger { color: var(--bad); }
 #prd-stock .ghost.danger.armed { background: var(--bad); color: var(--surface); border-color: var(--bad); }
+#prd-stock .ghost.hold { border-color: var(--hold); color: var(--hold); }
+#prd-stock .ghost.hold.armed { background: var(--hold); color: var(--surface); }
 #prd-stock .ghost:disabled { opacity: 0.5; cursor: wait; }
 #prd-stock .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 18px 16px; color: var(--muted); }
 #prd-stock .lines { display: flex; flex-direction: column; gap: 16px; }

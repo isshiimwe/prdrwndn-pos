@@ -186,6 +186,14 @@ class PRDRWNDN_POS_Stock {
 		if ( '' !== $b && preg_match( '/^[A-Za-z0-9_-]{1,40}$/', $b ) ) {
 			$out['bundleId'] = $b;
 		}
+		$by = mb_substr( sanitize_text_field( (string) ( $r['by'] ?? '' ) ), 0, 60 );
+		if ( '' !== $by ) {
+			$out['by'] = $by; // Who logged it.
+		}
+		$from = (string) ( $r['from'] ?? '' );
+		if ( '' !== $from && preg_match( '/^[A-Za-z0-9-]{1,20}$/', $from ) ) {
+			$out['from'] = $from; // The POS sale a hold came out of.
+		}
 		$at               = (float) ( $r['createdAt'] ?? 0 );
 		$out['createdAt'] = $at > 0 ? $at : round( microtime( true ) * 1000 );
 		return $out;
@@ -211,6 +219,15 @@ class PRDRWNDN_POS_Stock {
 			$s = $alias[ $s ];
 		}
 		return in_array( $s, self::SIZES, true ) ? $s : null;
+	}
+
+	/** A sale discount that belongs to the jerseys: a jersey deal, or the held price of a jersey hold. */
+	private static function jersey_fee( $fee, $jersey_cats ) {
+		$cat = (int) $fee->get_meta( '_prdpos_deal_cat', true );
+		if ( $cat ) {
+			return in_array( $cat, $jersey_cats, true );
+		}
+		return (bool) $fee->get_meta( '_prdpos_hold', true ) || false !== stripos( $fee->get_name(), 'jersey' );
 	}
 
 	/** Category IDs of the jersey products (for deals and order discounts). */
@@ -329,7 +346,7 @@ class PRDRWNDN_POS_Stock {
 	 * what it took, less anything restocked by a refund). POS sales come in
 	 * as in-person sales; cancelled orders give their stock back and drop out.
 	 */
-	public static function order_rows( $links ) {
+	public static function order_rows( $links, $only = null ) {
 		$rows   = array();
 		$by_vid = array();
 		foreach ( $links['map'] as $d => $sizes ) {
@@ -347,7 +364,7 @@ class PRDRWNDN_POS_Stock {
 		);
 		$jersey_cats = self::jersey_cat_ids();
 
-		$orders = wc_get_orders(
+		$orders  = null !== $only ? (array) $only : wc_get_orders(
 			array(
 				'limit'   => 500,
 				'type'    => 'shop_order',
@@ -356,6 +373,7 @@ class PRDRWNDN_POS_Stock {
 				'order'   => 'DESC',
 			)
 		);
+		$cashier = array();
 		foreach ( $orders as $order ) {
 			$lines = array();
 			$all   = 0.0;
@@ -392,7 +410,7 @@ class PRDRWNDN_POS_Stock {
 					continue;
 				}
 				$cat = (int) $f->get_meta( '_prdpos_deal_cat', true );
-				if ( $cat ? in_array( $cat, $jersey_cats, true ) : false !== stripos( $f->get_name(), 'jersey' ) ) {
+				if ( self::jersey_fee( $f, $jersey_cats ) ) {
 					$deal += $amt;
 				} elseif ( $f->get_meta( '_prdpos_discount', true ) || ( $is_pos && ! $cat ) ) {
 					$deal += $all > 0 ? $amt * min( 1, $gross / $all ) : 0;
@@ -408,6 +426,11 @@ class PRDRWNDN_POS_Stock {
 				$channel = 'In person';
 				$status  = $paid ? 'Picked up' : 'Awaiting payment';
 				$fee     = 0.0; // Cash, Zelle, Cash App, Apple Pay: no fees.
+				$uid     = (int) $order->get_meta( '_prdrwndn_pos_cashier', true );
+				if ( $uid && ! isset( $cashier[ $uid ] ) ) {
+					$u               = get_userdata( $uid );
+					$cashier[ $uid ] = $u ? wp_strip_all_tags( $u->display_name ) : '';
+				}
 			} else {
 				$pickup = false;
 				foreach ( $order->get_shipping_methods() as $m ) {
@@ -447,6 +470,7 @@ class PRDRWNDN_POS_Stock {
 					'bundleId'  => count( $lines ) > 1 ? 'wc' . $order->get_id() : null,
 					'orderNo'   => (string) $order->get_order_number(),
 					'orderUrl'  => $order->get_edit_order_url(),
+					'cashier'   => $is_pos ? ( $cashier[ $uid ] ?? '' ) : '',
 				);
 			}
 		}
@@ -634,7 +658,21 @@ class PRDRWNDN_POS_Stock {
 	 * @return int[] variation id => quantity.
 	 */
 	public static function holds_by_variation( $ids ) {
-		$ids = array_filter( array_map( 'strval', (array) $ids ) );
+		$out = array();
+		foreach ( self::holds_detail( $ids ) as $hd ) {
+			$out[ $hd['vid'] ] = ( $out[ $hd['vid'] ] ?? 0 ) + $hd['qty'];
+		}
+		return $out;
+	}
+
+	/**
+	 * The holds behind these IDs: size variation, how many, and the price
+	 * each was held at (any deal or discount it had is in that price).
+	 *
+	 * @return array[] id, vid, qty, price.
+	 */
+	public static function holds_detail( $ids ) {
+		$ids = array_unique( array_filter( array_map( 'strval', (array) $ids ) ) );
 		if ( ! $ids || ! self::can() ) {
 			return array();
 		}
@@ -645,7 +683,12 @@ class PRDRWNDN_POS_Stock {
 			$r   = $sales[ $id ] ?? null;
 			$vid = $r && 'On hold' === ( $r['status'] ?? '' ) ? ( $map[ $r['design'] ][ $r['size'] ] ?? 0 ) : 0;
 			if ( $vid ) {
-				$out[ $vid ] = ( $out[ $vid ] ?? 0 ) + (int) $r['qty'];
+				$out[] = array(
+					'id'    => $id,
+					'vid'   => (int) $vid,
+					'qty'   => (int) $r['qty'],
+					'price' => (float) $r['price'],
+				);
 			}
 		}
 		return $out;
@@ -682,6 +725,7 @@ class PRDRWNDN_POS_Stock {
 					}
 				}
 				foreach ( $clean as $c ) {
+					$c['by']                 = self::me();
 					$sales[ self::new_id() ] = $c;
 				}
 				self::put( 'sales', $sales );
@@ -795,10 +839,168 @@ class PRDRWNDN_POS_Stock {
 				self::put( 'config', $c );
 				return true;
 
+			case 'unpaid':
+				return self::unpaid( (string) ( $data['id'] ?? '' ), (int) ( $data['qty'] ?? 1 ) );
+
 			case 'import':
 				return self::import( $data );
 		}
 		return new WP_Error( 'bad', 'Unknown action.' );
+	}
+
+	/** Display name of whoever is signed in. */
+	private static function me() {
+		$u = wp_get_current_user();
+		return $u && $u->exists() ? mb_substr( wp_strip_all_tags( $u->display_name ), 0, 60 ) : '';
+	}
+
+	/**
+	 * A jersey rung up in the POS that the customer hasn't paid for yet:
+	 * it comes out of the sale (so the sale shows what was really paid)
+	 * and becomes a hold for the same customer, at the price it sold for.
+	 *
+	 * @param string $row_id Stock row ID of the POS line ("wc" + order item ID).
+	 * @param int    $n      How many of that line to hold.
+	 * @return true|WP_Error
+	 */
+	private static function unpaid( $row_id, $n ) {
+		if ( ! preg_match( '/^wc(\d+)$/', $row_id, $m ) || ! function_exists( 'wc_get_order' ) ) {
+			return new WP_Error( 'bad', 'That sale line was not found.' );
+		}
+		$item_id = (int) $m[1];
+		$order   = wc_get_order( wc_get_order_id_by_order_item_id( $item_id ) );
+		$items   = $order ? $order->get_items() : array();
+		$item    = $items[ $item_id ] ?? null; // The order's own copy, so its totals see the change.
+		$items   = null;
+		if ( ! $order || ! $item instanceof WC_Order_Item_Product ) {
+			return new WP_Error( 'gone', 'That sale line was not found. The list is up to date now.' );
+		}
+		if ( PRDRWNDN_POS_Sales::VIA !== $order->get_created_via() ) {
+			return new WP_Error( 'bad', 'Only POS sales can be changed here. Change website orders in WooCommerce.' );
+		}
+		if ( ! in_array( $order->get_status(), array( 'processing', 'completed' ), true ) ) {
+			return new WP_Error( 'bad', 'This sale is not marked paid, so there is nothing to move.' );
+		}
+		$links = self::links( true );
+		$row   = null;
+		foreach ( self::order_rows( $links, array( $order ) ) as $r ) {
+			if ( 'wc' . $item_id === $r['id'] ) {
+				$row = $r;
+			}
+		}
+		if ( ! $row ) {
+			return new WP_Error( 'gone', 'That jersey is no longer in this sale. The list is up to date now.' );
+		}
+		$n = max( 1, min( $n, (int) $row['qty'] ) );
+
+		// The part of the sale's deals and discounts that went with these jerseys goes with them.
+		$jersey_cats = self::jersey_cat_ids();
+		$by_vid      = array();
+		foreach ( $links['map'] as $sizes ) {
+			foreach ( $sizes as $vid ) {
+				$by_vid[ $vid ] = true;
+			}
+		}
+		$all   = 0.0;
+		$gross = 0.0;
+		foreach ( $order->get_items() as $it ) {
+			$all += (float) $it->get_total();
+			if ( isset( $by_vid[ (int) $it->get_variation_id() ] ) ) {
+				$q      = (int) $it->get_meta( '_reduced_stock', true ) - (int) $it->get_meta( '_restock_refunded_items', true );
+				$gross += (float) $it->get_total() * min( 1, max( 0, $q ) / max( 1, (int) $it->get_quantity() ) );
+			}
+		}
+		$line_qty = max( 1, (int) $item->get_quantity() );
+		$part     = (float) $item->get_total() / $line_qty * $n;
+		foreach ( $order->get_fees() as $fid => $f ) {
+			$amt = (float) $f->get_total();
+			if ( $amt >= 0 ) {
+				continue;
+			}
+			$cat = (int) $f->get_meta( '_prdpos_deal_cat', true );
+			if ( self::jersey_fee( $f, $jersey_cats ) ) {
+				$take = $gross > 0 ? $amt * $part / $gross : 0;
+			} elseif ( $f->get_meta( '_prdpos_discount', true ) || ! $cat ) {
+				$take = $all > 0 ? $amt * $part / $all : 0;
+			} else {
+				continue;
+			}
+			$left = round( $amt - $take, 2 );
+			if ( $left > -0.005 ) {
+				$order->remove_item( $fid );
+			} else {
+				$f->set_amount( $left );
+				$f->set_total( $left );
+				$f->save();
+			}
+		}
+
+		// Take the jerseys out of the sale and put them back in stock.
+		$product = $item->get_product();
+		$label   = self::DESIGNS[ $row['design'] ] . ' ' . $row['size'] . ( $n > 1 ? ' x' . $n : '' );
+		if ( $n >= $line_qty ) {
+			$order->remove_item( $item_id );
+		} else {
+			$keep = $line_qty - $n;
+			$item->set_quantity( $keep );
+			$item->set_subtotal( (float) $item->get_subtotal() / $line_qty * $keep );
+			$item->set_total( (float) $item->get_total() / $line_qty * $keep );
+			$item->update_meta_data( '_reduced_stock', max( 0, (int) $item->get_meta( '_reduced_stock', true ) - $n ) );
+			$item->save();
+		}
+		if ( $product && $product->managing_stock() ) {
+			wc_update_product_stock( $product, $n, 'increase' );
+		}
+		if ( (float) $order->get_total_tax() > 0 || PRDRWNDN_POS_Sales::charge_tax() ) {
+			$order->calculate_taxes( PRDRWNDN_POS_Sales::store_location() );
+		}
+		$order->calculate_totals( false );
+		$order->save();
+
+		$who      = '' !== $row['customer'] ? $row['customer'] : 'POS sale #' . $row['orderNo'];
+		$me       = self::me();
+		$hold     = self::clean_sale(
+			array(
+				'design'    => $row['design'],
+				'size'      => $row['size'],
+				'qty'       => $n,
+				'price'     => $row['price'],
+				'channel'   => 'In person',
+				'customer'  => $who,
+				'status'    => 'On hold',
+				'date'      => $row['date'],
+				'bundleId'  => 'p' . $order->get_id(),
+				'by'        => $me,
+				'from'      => $row['orderNo'],
+				'createdAt' => round( microtime( true ) * 1000 ),
+			)
+		);
+		if ( is_wp_error( $hold ) ) {
+			return $hold;
+		}
+		$sales                   = self::get( 'sales', array() );
+		$sales[ self::new_id() ] = $hold;
+		self::put( 'sales', $sales );
+
+		$left = 0;
+		foreach ( $order->get_items() as $it ) {
+			$left += (int) $it->get_quantity();
+		}
+		$order->add_order_note(
+			sprintf(
+				'%1$s not paid yet: moved to a jersey hold for %2$s at %3$s by %4$s. This sale now shows %5$s paid.',
+				$label,
+				$who,
+				wp_strip_all_tags( wc_price( $row['price'] * $n ) ),
+				'' !== $me ? $me : 'the store',
+				wp_strip_all_tags( wc_price( $order->get_total() ) )
+			)
+		);
+		if ( ! $left ) {
+			$order->update_status( 'cancelled', 'Nothing in this sale was paid. Everything is on hold in Jersey Stock.' );
+		}
+		self::resync();
+		return true;
 	}
 
 	/** One-time move from the old tracker. Refuses to overwrite unless asked. */

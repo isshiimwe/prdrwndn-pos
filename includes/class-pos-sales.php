@@ -247,7 +247,7 @@ class PRDRWNDN_POS_Sales {
 
 		$warnings = array();
 		$holds    = $req->get_param( 'holds' );
-		$held     = ( is_array( $holds ) && class_exists( 'PRDRWNDN_POS_Stock' ) ) ? PRDRWNDN_POS_Stock::holds_by_variation( $holds ) : array();
+		$held     = $cart['held'];
 		$order    = wc_create_order(
 			array(
 				'status'      => 'pending',
@@ -276,6 +276,9 @@ class PRDRWNDN_POS_Sales {
 			}
 			if ( ! empty( $d['manual'] ) ) {
 				$fee->add_meta_data( '_prdpos_discount', 1, true );
+			}
+			if ( ! empty( $d['hold'] ) ) {
+				$fee->add_meta_data( '_prdpos_hold', 1, true );
 			}
 			$order->add_item( $fee );
 		}
@@ -417,14 +420,53 @@ class PRDRWNDN_POS_Sales {
 		if ( current_user_can( PRDRWNDN_POS_Roles::CAP_MANAGE ) ) {
 			$discount = max( 0, round( (float) $req->get_param( 'discount' ), 2 ) );
 		}
+
+		// Jersey holds picked up with this sale are charged what they were held at
+		// (a deal or discount they had stays with them) and sit out the deals.
+		$held     = array();
+		$hold_off = 0.0;
+		$holds    = $req->get_param( 'holds' );
+		if ( is_array( $holds ) && class_exists( 'PRDRWNDN_POS_Stock' ) ) {
+			$room = array();
+			$now  = array();
+			foreach ( $lines as $l ) {
+				$vid          = $l['product']->get_id();
+				$room[ $vid ] = ( $room[ $vid ] ?? 0 ) + $l['qty'];
+				$now[ $vid ]  = $l['price'];
+			}
+			foreach ( PRDRWNDN_POS_Stock::holds_detail( $holds ) as $hd ) {
+				if ( ( $room[ $hd['vid'] ] ?? 0 ) < $hd['qty'] ) {
+					continue;
+				}
+				$room[ $hd['vid'] ] -= $hd['qty'];
+				$held[ $hd['vid'] ]  = ( $held[ $hd['vid'] ] ?? 0 ) + $hd['qty'];
+				$hold_off           += max( 0, $now[ $hd['vid'] ] - $hd['price'] ) * $hd['qty'];
+			}
+		}
 		return array(
 			'lines'    => $lines,
 			'discount' => $discount,
+			'held'     => $held,
+			'hold_off' => round( $hold_off, 2 ),
 		);
 	}
 
 	private static function discount_lines( $cart ) {
-		$out = self::deal_discounts( $cart['lines'] );
+		$deal_lines = array();
+		foreach ( $cart['lines'] as $l ) {
+			$l['qty'] -= $cart['held'][ $l['product']->get_id() ] ?? 0;
+			if ( $l['qty'] > 0 ) {
+				$deal_lines[] = $l;
+			}
+		}
+		$out = self::deal_discounts( $deal_lines );
+		if ( $cart['hold_off'] > 0 ) {
+			$out[] = array(
+				'label'  => __( 'Held price', 'prdrwndn-pos' ),
+				'amount' => $cart['hold_off'],
+				'hold'   => true,
+			);
+		}
 		if ( $cart['discount'] > 0 ) {
 			$out[] = array(
 				'label'  => __( 'Discount', 'prdrwndn-pos' ),
@@ -466,7 +508,7 @@ class PRDRWNDN_POS_Sales {
 		);
 	}
 
-	private static function store_location() {
+	public static function store_location() {
 		$c = WC()->countries;
 		return array(
 			'country'  => $c->get_base_country(),
