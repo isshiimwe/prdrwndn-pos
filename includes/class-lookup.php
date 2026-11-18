@@ -127,9 +127,9 @@ class PRDRWNDN_POS_Lookup {
 			'gtin'         => method_exists( $product, 'get_global_unique_id' ) ? $product->get_global_unique_id( 'edit' ) : '',
 			'barcode'      => $code['number'],
 			'barcode_kind' => $code['kind'],
-			'price'        => (float) $product->get_price(),
+			'price'        => self::price( $product ),
 			'regular'      => (float) $product->get_regular_price(),
-			'price_text'   => self::money( $product->get_price() ),
+			'price_text'   => self::money( self::price( $product ) ),
 			'manage_stock' => $product->managing_stock(),
 			'stock'        => $product->managing_stock() ? (int) $product->get_stock_quantity() : null,
 			'stock_status' => $product->get_stock_status(),
@@ -154,6 +154,19 @@ class PRDRWNDN_POS_Lookup {
 	 * @param mixed $amount Amount.
 	 * @return string
 	 */
+	/**
+	 * What the product costs right now. A scheduled sale counts from the
+	 * minute it starts to the minute it ends, without waiting for the
+	 * store's nightly price update.
+	 */
+	public static function price( $product ) {
+		$sale = (string) $product->get_sale_price( 'edit' );
+		if ( '' !== $sale && ( $product->get_date_on_sale_from( 'edit' ) || $product->get_date_on_sale_to( 'edit' ) ) ) {
+			return (float) ( $product->is_on_sale( 'edit' ) ? $sale : $product->get_regular_price( 'edit' ) );
+		}
+		return (float) $product->get_price();
+	}
+
 	public static function money( $amount ) {
 		if ( '' === $amount || null === $amount ) {
 			return '';

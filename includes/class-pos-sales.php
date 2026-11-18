@@ -259,7 +259,21 @@ class PRDRWNDN_POS_Sales {
 			return $order;
 		}
 		foreach ( $cart['lines'] as $l ) {
-			$order->add_product( $l['product'], $l['qty'] );
+			$line_total = (float) wc_get_price_excluding_tax(
+				$l['product'],
+				array(
+					'qty'   => $l['qty'],
+					'price' => $l['price'],
+				)
+			);
+			$order->add_product(
+				$l['product'],
+				$l['qty'],
+				array(
+					'subtotal' => $line_total,
+					'total'    => $line_total,
+				)
+			);
 			if ( $l['product']->managing_stock() && (int) $l['product']->get_stock_quantity() < $l['qty'] - ( $held[ $l['product']->get_id() ] ?? 0 ) ) {
 				/* translators: 1: product, 2: stock */
 				$warnings[] = sprintf( __( '%1$s: only %2$d were in stock on the website. Recount this item.', 'prdrwndn-pos' ), $l['label'], (int) $l['product']->get_stock_quantity() );
@@ -408,7 +422,7 @@ class PRDRWNDN_POS_Sales {
 			$lines[] = array(
 				'product' => $product,
 				'qty'     => min( $qty, 999 ),
-				'price'   => (float) $product->get_price(),
+				'price'   => PRDRWNDN_POS_Lookup::price( $product ),
 				'cats'    => array_map( 'intval', $parent ? $parent->get_category_ids() : array() ),
 				'label'   => wp_strip_all_tags( $product->get_name() ),
 			);
