@@ -69,7 +69,11 @@
 		plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg>',
 		trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>',
 		check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
-		cloud: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/><path d="M12 11v5M9.5 13.5L12 16l2.5-2.5"/></svg>'
+		cloud: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/><path d="M12 11v5M9.5 13.5L12 16l2.5-2.5"/></svg>',
+		print: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V4h10v5M7 17H5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M7 14h10v6H7z"/></svg>',
+		download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></svg>',
+		mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4z"/><path d="M4.5 6.5L12 13l7.5-6.5"/></svg>',
+		wa: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6a8.4 8.4 0 0 0-7.3 12.6L3.6 20.4l4.3-1.1A8.4 8.4 0 1 0 12 3.6z"/><path d="M9.3 8.6c.3-.6.6-.6.9-.6l.5.1 1 2.1-.6.9c.4.9 1.4 1.9 2.3 2.3l.9-.6 2.1 1c0 .7-.3 1.5-1.2 1.7-.8.2-2.3 0-4-1.5-1.6-1.4-2.3-3-2.2-3.9 0-.6.1-1.1.3-1.5z" stroke-width="1.4"/></svg>'
 	};
 
 	/* ---------------- Catalog and codes ---------------- */
@@ -298,7 +302,7 @@
 				'<div class="top-brand"><img class="top-logo" src="' + h(C.logo || '') + '" alt="Proud Rwandan" width="51" height="38"><span class="pos-tag">POS</span></div>' +
 				'<nav class="tabs" aria-label="Sections">' +
 					'<button type="button" class="tab" data-action="tab" data-tab="sell">Sell</button>' +
-					'<button type="button" class="tab" data-action="tab" data-tab="sales">Today</button>' +
+					'<button type="button" class="tab" data-action="tab" data-tab="sales">Sales</button>' +
 					(C.stock ? '<button type="button" class="tab" data-action="tab" data-tab="stock">Stock</button>' : '') +
 				'</nav>' +
 				'<button type="button" class="net" id="net" data-action="sync"></button>' +
@@ -315,7 +319,7 @@
 					'</form>' +
 					'<div class="grid" id="grid"></div>' +
 				'</section>' +
-				'<section class="pane pane-sales" id="pane-sales" aria-label="Today\'s sales" hidden></section>' +
+				'<section class="pane pane-sales" id="pane-sales" aria-label="Sales" hidden></section>' +
 				(C.stock ? '<section class="pane pane-stock" id="pane-stock" aria-label="Jersey stock" hidden></section>' : '') +
 				'<aside class="cart" id="cart" aria-label="Cart"></aside>' +
 			'</main>' +
@@ -774,9 +778,12 @@
 			'<p class="done-total">' + money(res ? res.total : entry.total) + '</p>' +
 			(change !== null && change !== undefined ? '<p class="done-change">Change due: <strong>' + money(change) + '</strong></p>' : '') +
 			(res && res.warnings && res.warnings.length ? '<ul class="warnings">' + res.warnings.map(function (w) { return '<li>' + h(w) + '</li>'; }).join('') + '</ul>' : '') +
+			(res && res.id ? '<div class="done-receipt" id="done-receipt" data-id="' + res.id + '"><p class="muted small">Getting the receipt...</p></div>' :
+				'<p class="muted small">Receipt options show here once the sale uploads. It is also in the Sales tab.</p>') +
 			'<button type="button" class="btn btn-primary btn-xl" data-action="new-sale">New sale</button>' +
 		'</div>';
 		openSheet('done', html);
+		if (res && res.id) { fillDoneReceipt(res.id, entry.payload && entry.payload.customer); }
 	}
 
 	/* ---------------- Upload queue ---------------- */
@@ -825,7 +832,287 @@
 		});
 	}
 
-	/* ---------------- Today's sales ---------------- */
+	/* ---------------- Receipts ---------------- */
+
+	var receipts = {};
+	var canShareFiles = (function () {
+		try { return !!(navigator.canShare && window.File && navigator.canShare({ files: [new File(['x'], 'x.pdf', { type: 'application/pdf' })] })); } catch (e) { return false; }
+	})();
+	var touch = window.matchMedia('(pointer: coarse)').matches;
+
+	function getReceipt(id, fresh) {
+		if (!fresh && receipts[id]) { return Promise.resolve(receipts[id]); }
+		return api('pos/receipt/' + id).then(function (r) { receipts[id] = r; return r; });
+	}
+
+	function receiptCss(css) {
+		if (document.getElementById('rcpt-css')) { return; }
+		var st = document.createElement('style');
+		st.id = 'rcpt-css';
+		st.textContent = css;
+		document.head.appendChild(st);
+	}
+
+	function receiptActions(r, prefill) {
+		prefill = prefill || {};
+		var id = r.id;
+		var email = r.email || prefill.email || '';
+		var phone = r.phone || prefill.phone || '';
+		return '<div class="rcpt-actions">' +
+			'<div class="rcpt-grid">' +
+				'<button type="button" class="rbtn" data-action="rcpt-print" data-id="' + id + '">' + ICON.print + '<span>Print</span></button>' +
+				'<button type="button" class="rbtn" data-action="rcpt-pdf" data-id="' + id + '">' + ICON.download + '<span>PDF</span></button>' +
+				'<button type="button" class="rbtn" data-action="rcpt-form" data-form="email" data-id="' + id + '">' + ICON.mail + '<span>Email</span></button>' +
+				'<button type="button" class="rbtn" data-action="rcpt-form" data-form="wa" data-id="' + id + '">' + ICON.wa + '<span>WhatsApp</span></button>' +
+			'</div>' +
+			'<div class="rcpt-more">' +
+				'<button type="button" class="link" data-action="rcpt-label" data-id="' + id + '">Label printer (4x6)</button>' +
+				(canShareFiles ? '<button type="button" class="link" data-action="rcpt-share" data-id="' + id + '">Share PDF</button>' : '') +
+			'</div>' +
+			'<form class="rcpt-form" data-form="email" data-id="' + id + '" hidden>' +
+				'<label for="re-' + id + '">Customer email</label>' +
+				'<div class="rcpt-row"><input id="re-' + id + '" name="to" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + h(email) + '" required><button type="submit" class="btn btn-primary">Send</button></div>' +
+			'</form>' +
+			'<form class="rcpt-form" data-form="wa" data-id="' + id + '" hidden>' +
+				'<label for="rw-' + id + '">Customer WhatsApp number</label>' +
+				'<div class="rcpt-row"><input id="rw-' + id + '" name="to" type="tel" autocomplete="off" value="' + h(phone) + '" placeholder="Empty: pick a contact"><button type="submit" class="btn btn-primary">Open WhatsApp</button></div>' +
+				'<p class="muted small">US numbers work without +1. Other countries start with + and the country code, like +250 for Rwanda.</p>' +
+			'</form>' +
+			'<p class="rcpt-msg" id="rcpt-msg-' + id + '" role="status" aria-live="polite"></p>' +
+		'</div>';
+	}
+
+	function receiptSay(id, text, bad) {
+		var el = document.getElementById('rcpt-msg-' + id);
+		if (el) { el.textContent = text; el.className = 'rcpt-msg' + (bad ? ' is-bad' : ' is-ok'); }
+		else if (text) { toast(text, bad); }
+	}
+
+	function openReceipt(id) {
+		openSheet('receipt', '<div class="sheet-head"><h2>Receipt</h2><button type="button" class="icon-btn" data-action="close-sheet" aria-label="Close">' + ICON.close + '</button></div><p class="muted pad">Loading the receipt...</p>');
+		getReceipt(id).then(function (r) {
+			var wrap = document.getElementById('sheet');
+			if (!wrap || wrap.hidden || wrap.getAttribute('data-kind') !== 'receipt') { return; }
+			receiptCss(r.css);
+			document.getElementById('sheet-body').innerHTML =
+				'<div class="sheet-head"><h2>Receipt #' + h(r.number) + '</h2><button type="button" class="icon-btn" data-action="close-sheet" aria-label="Close">' + ICON.close + '</button></div>' +
+				receiptActions(r) +
+				'<div class="rcpt-paper">' + r.html + '</div>';
+		}).catch(function (e) {
+			var body = document.getElementById('sheet-body');
+			if (body) { body.querySelector('.pad').textContent = e.offline ? 'Offline right now. Receipts open when you are back online.' : e.message; }
+		});
+	}
+
+	function fillDoneReceipt(id, prefill) {
+		getReceipt(id).then(function (r) {
+			var box = document.getElementById('done-receipt');
+			if (!box || Number(box.getAttribute('data-id')) !== id) { return; }
+			receiptCss(r.css);
+			box.innerHTML = '<p class="done-label">Receipt</p>' + receiptActions(r, prefill) +
+				(prefill && prefill.email ? '<p class="muted small">The store also emails a receipt to ' + h(prefill.email) + '.</p>' : '');
+		}).catch(function () {
+			var box = document.getElementById('done-receipt');
+			if (box) { box.innerHTML = '<p class="muted small">The receipt is in the Sales tab.</p>'; }
+		});
+	}
+
+	function printReceipt(id) {
+		getReceipt(id).then(function (r) {
+			receiptCss(r.css);
+			var pr = document.getElementById('print-root');
+			if (!pr) { pr = document.createElement('div'); pr.id = 'print-root'; document.body.appendChild(pr); }
+			pr.innerHTML = r.html;
+			document.body.classList.add('printing-receipt');
+			var done = function () { document.body.classList.remove('printing-receipt'); window.removeEventListener('afterprint', done); };
+			window.addEventListener('afterprint', done);
+			setTimeout(function () { window.print(); setTimeout(done, 1500); }, 60);
+		}).catch(function (e) { receiptSay(id, e.message, true); });
+	}
+
+	function receiptPdf(r) {
+		return fetch(r.download, { credentials: 'same-origin', cache: 'no-store' }).then(function (res) {
+			if (!res.ok) { throw new Error('Could not make the PDF (' + res.status + ').'); }
+			return res.blob();
+		}, function () { throw new Error('No connection.'); });
+	}
+
+	function saveFile(blob, name, title) {
+		if (touch && canShareFiles && window.File) {
+			var file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+			if (navigator.canShare({ files: [file] })) {
+				return navigator.share({ files: [file], title: title || name }).catch(function (e) { if (e && e.name !== 'AbortError') { throw e; } });
+			}
+		}
+		var url = URL.createObjectURL(blob);
+		var a = document.createElement('a');
+		a.href = url;
+		a.download = name;
+		document.body.appendChild(a);
+		a.click();
+		setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 4000);
+		return Promise.resolve();
+	}
+
+	function downloadReceipt(id) {
+		receiptSay(id, 'Making the PDF...');
+		getReceipt(id).then(function (r) {
+			return receiptPdf(r).then(function (blob) { return saveFile(blob, r.filename, 'Receipt #' + r.number); });
+		}).then(function () { receiptSay(id, ''); }).catch(function (e) { receiptSay(id, e.message, true); });
+	}
+
+	function shareReceipt(id) {
+		getReceipt(id).then(function (r) {
+			return receiptPdf(r).then(function (blob) {
+				var file = new File([blob], r.filename, { type: 'application/pdf' });
+				return navigator.share({ files: [file], title: 'Receipt #' + r.number, text: 'PRDRWNDN receipt #' + r.number });
+			});
+		}).catch(function (e) { if (e && e.name !== 'AbortError') { receiptSay(id, e.message, true); } });
+	}
+
+	function emailReceipt(id, to, btn) {
+		btn.disabled = true;
+		receiptSay(id, 'Sending...');
+		api('pos/receipt/' + id + '/email', { method: 'POST', body: JSON.stringify({ email: to }) }).then(function (res) {
+			if (receipts[id]) { receipts[id].email = res.to; }
+			receiptSay(id, 'Receipt emailed to ' + res.to + '.');
+		}).catch(function (e) {
+			receiptSay(id, e.offline ? 'Offline right now. Try again when you are back online.' : e.message, true);
+		}).then(function () { btn.disabled = false; });
+	}
+
+	function waNumber(raw) {
+		var s = String(raw || '').trim();
+		var digits = s.replace(/\D/g, '');
+		if (!digits) { return ''; }
+		if (s.charAt(0) === '+' || s.indexOf('00') === 0) { return s.indexOf('00') === 0 ? digits.slice(2) : digits; }
+		if (digits.length === 10) { return '1' + digits; }
+		return digits;
+	}
+
+	function whatsappReceipt(id, to) {
+		getReceipt(id).then(function (r) {
+			var n = waNumber(to);
+			window.open('https://wa.me/' + n + '?text=' + encodeURIComponent(r.text), '_blank', 'noopener');
+			receiptSay(id, n ? 'WhatsApp opened with the receipt for +' + n + '.' : 'WhatsApp opened. Pick the customer, then send.');
+		}).catch(function (e) { receiptSay(id, e.message, true); });
+	}
+
+	/* Label printer (CTP800BD) through QZ Tray on the Mac. */
+	var qzSetup = false;
+	function loadScript(src) {
+		return new Promise(function (resolve, reject) {
+			var s = document.createElement('script');
+			s.src = src;
+			s.onload = resolve;
+			s.onerror = function () { reject(new Error('Could not load QZ Tray.')); };
+			document.head.appendChild(s);
+		});
+	}
+	function qzPrinter() {
+		return (window.qz ? Promise.resolve() : loadScript(C.qz)).then(function () {
+			if (!qzSetup) {
+				qz.security.setCertificatePromise(function (resolve) {
+					if (!C.qzSign) { resolve(); return; }
+					api('qz/certificate').then(function (d) { resolve(d.certificate || ''); }).catch(function () { resolve(); });
+				});
+				qz.security.setSignatureAlgorithm('SHA512');
+				qz.security.setSignaturePromise(function (toSign) {
+					return function (resolve) {
+						if (!C.qzSign) { resolve(); return; }
+						api('qz/sign', { method: 'POST', body: JSON.stringify({ request: toSign }) }).then(function (d) { resolve(d.signature || ''); }).catch(function () { resolve(); });
+					};
+				});
+				qzSetup = true;
+			}
+			return qz.websocket.isActive() ? null : qz.websocket.connect({ retries: 1, delay: 1 });
+		}).then(function () {
+			return Promise.all([qz.printers.find(), qz.printers.getDefault().catch(function () { return ''; })]);
+		}).then(function (res) {
+			var list = Array.isArray(res[0]) ? res[0] : [res[0]];
+			var saved = '';
+			try { saved = localStorage.getItem('prdpos_printer') || ''; } catch (e) { /* private mode */ }
+			if (saved && list.indexOf(saved) !== -1) { return saved; }
+			var hint = String(C.printer || '').toLowerCase();
+			var match = list.filter(function (p) {
+				var l = String(p).toLowerCase();
+				return (hint && l.indexOf(hint) !== -1) || l.indexOf('ctp800') !== -1 || l.indexOf('label') !== -1;
+			})[0];
+			var pick = match || res[1] || list[0] || '';
+			if (!pick) { throw new Error('No printer found.'); }
+			return pick;
+		});
+	}
+	function labelReceipt(id) {
+		receiptSay(id, 'Connecting to the label printer...');
+		var printer;
+		qzPrinter().then(function (p) {
+			printer = p;
+			return getReceipt(id);
+		}).then(function (r) {
+			return receiptPdf(r).then(function (blob) {
+				return new Promise(function (resolve, reject) {
+					var fr = new FileReader();
+					fr.onload = function () { resolve({ r: r, b64: String(fr.result).split(',')[1] }); };
+					fr.onerror = reject;
+					fr.readAsDataURL(blob);
+				});
+			});
+		}).then(function (x) {
+			var config = qz.configs.create(printer, { size: { width: 4, height: 6 }, units: 'in', colorType: 'blackwhite', margins: 0, scaleContent: true, jobName: 'PRDRWNDN receipt #' + x.r.number });
+			return qz.print(config, [{ type: 'pixel', format: 'pdf', flavor: 'base64', data: x.b64 }]);
+		}).then(function () {
+			receiptSay(id, 'Sent to ' + printer + '.');
+		}).catch(function (e) {
+			var msg = e && e.message ? e.message : String(e);
+			receiptSay(id, /QZ|websocket|connect|Unable to establish/i.test(msg) || !window.qz ?
+				'Could not reach the label printer. Use the POS on the Mac with QZ Tray open (green icon in the menu bar), or use Print.' :
+				'Printing stopped: ' + msg, true);
+		});
+	}
+
+	document.addEventListener('submit', function (e) {
+		var f = e.target;
+		if (!f.classList || !f.classList.contains('rcpt-form')) { return; }
+		e.preventDefault();
+		var id = Number(f.getAttribute('data-id'));
+		var to = f.querySelector('input').value.trim();
+		if (f.getAttribute('data-form') === 'email') {
+			emailReceipt(id, to, f.querySelector('button'));
+		} else {
+			whatsappReceipt(id, to);
+		}
+	});
+
+	/* ---------------- Sales history ---------------- */
+
+	var hist = { preset: 'today', from: '', to: '', method: '', cashier: '', q: '', page: 1, rows: [], data: null, seq: 0 };
+	var PRESETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['7', '7 days'], ['30', '30 days'], ['month', 'This month'], ['custom', 'Pick dates']];
+
+	function two(n) { return (n < 10 ? '0' : '') + n; }
+	function ymd(d) { return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()); }
+	function histRange() {
+		var now = new Date(), d = new Date(now), to = ymd(now), from = to;
+		if (hist.preset === 'yesterday') { d.setDate(d.getDate() - 1); from = to = ymd(d); }
+		else if (hist.preset === '7') { d.setDate(d.getDate() - 6); from = ymd(d); }
+		else if (hist.preset === '30') { d.setDate(d.getDate() - 29); from = ymd(d); }
+		else if (hist.preset === 'month') { from = ymd(new Date(now.getFullYear(), now.getMonth(), 1)); }
+		else if (hist.preset === 'custom') { from = hist.from || to; to = hist.to || from; }
+		return [from, to];
+	}
+	function histLabel() {
+		var p = PRESETS.filter(function (x) { return x[0] === hist.preset; })[0];
+		if (hist.preset === 'custom') { var r = histRange(); return r[0] === r[1] ? r[0] : r[0] + ' to ' + r[1]; }
+		return p ? (hist.preset === '7' || hist.preset === '30' ? 'Last ' + p[1] : p[1]) : '';
+	}
+	function histQuery(page, per) {
+		var r = histRange();
+		var q = (hist.preset === 'custom' ? 'from=' + r[0] + '&to=' + r[1] : 'range=' + hist.preset) + '&page=' + page + '&per_page=' + per;
+		if (hist.method) { q += '&method=' + encodeURIComponent(hist.method); }
+		if (hist.cashier) { q += '&cashier=' + encodeURIComponent(hist.cashier); }
+		if (hist.q) { q += '&q=' + encodeURIComponent(hist.q); }
+		return q;
+	}
 
 	function renderSales() {
 		var pane = document.getElementById('pane-sales');
@@ -838,29 +1125,128 @@
 				(s.error ? '<button type="button" class="link" data-action="retry-sale" data-uuid="' + h(s.uuid) + '">Retry</button> <button type="button" class="link danger" data-action="drop-sale" data-uuid="' + h(s.uuid) + '">Delete</button>' : '') +
 				'</div></li>';
 		}).join('');
-		pane.innerHTML = '<div class="sales-head"><h2>Today</h2>' +
-			(queue.length ? '<button type="button" class="btn" data-action="sync">Upload now</button>' : '') +
-			'<button type="button" class="btn" data-action="refresh-sales">Refresh</button></div>' +
+		var r = histRange();
+		var methods = (catalog && catalog.methods) || {};
+		pane.innerHTML = '<div class="sales-head"><h2>Sales</h2>' +
+			(queue.length ? '<button type="button" class="btn btn-small" data-action="sync">Upload now</button>' : '') +
+			'<button type="button" class="btn btn-small" data-action="hist-csv">' + ICON.download + ' Download</button>' +
+			'<button type="button" class="btn btn-small" data-action="refresh-sales">Refresh</button></div>' +
+			'<div class="hist-filters">' +
+				'<div class="chips hist-presets" role="group" aria-label="Dates">' + PRESETS.map(function (p) {
+					return '<button type="button" class="chip" data-action="hist-preset" data-preset="' + p[0] + '" aria-pressed="' + (hist.preset === p[0]) + '">' + h(p[1]) + '</button>';
+				}).join('') + '</div>' +
+				'<div class="hist-range"' + (hist.preset === 'custom' ? '' : ' hidden') + '>' +
+					'<label>From <input type="date" id="h-from" value="' + h(r[0]) + '"></label>' +
+					'<label>To <input type="date" id="h-to" value="' + h(r[1]) + '"></label>' +
+				'</div>' +
+				'<div class="hist-row">' +
+					'<label class="sr" for="h-q">Search sales</label><input id="h-q" type="search" placeholder="Search order #, customer or item" value="' + h(hist.q) + '">' +
+					'<label class="sr" for="h-method">Payment</label><select id="h-method"><option value="">All payments</option>' + Object.keys(methods).map(function (k) {
+						return '<option value="' + h(k) + '"' + (hist.method === k ? ' selected' : '') + '>' + h(methods[k]) + '</option>';
+					}).join('') + '</select>' +
+					(C.manager ? '<label class="sr" for="h-cashier">Cashier</label><select id="h-cashier"><option value="">Everyone</option></select>' : '') +
+				'</div>' +
+			'</div>' +
 			(pending ? '<h3>On this device</h3><ul class="sales">' + pending + '</ul>' : '') +
 			'<div id="sales-server"><p class="muted pad">' + (online ? 'Loading sales...' : 'Offline. Sales from the store show here when you are back online.') + '</p></div>';
-		if (!online) { return; }
-		api('pos/sales').then(function (d) {
-			var box = document.getElementById('sales-server');
-			if (!box) { return; }
-			var totalsHtml = Object.keys(d.totals).map(function (k) {
-				return '<div class="sum"><span>' + h(k) + '</span><span>' + money(d.totals[k]) + '</span></div>';
-			}).join('');
-			box.innerHTML = '<div class="sums day-totals">' + totalsHtml +
-				'<div class="sum sum-total"><span>Total today (' + d.sales.length + (d.sales.length === 1 ? ' sale' : ' sales') + ')</span><span>' + money(d.total) + '</span></div></div>' +
-				(d.sales.length ? '<ul class="sales">' + d.sales.map(function (s) {
-					return '<li class="sale"><div><strong>#' + h(s.number) + '</strong> · ' + h(s.time) + ' · ' + h(s.method) +
-						'<span class="muted block">' + h(String(s.items).replace(/PRDRWNDN\s*®?\s*/gi, '')) + '</span></div>' +
-						'<div class="sale-side"><strong>' + money(s.total) + '</strong><span class="muted">' + h(s.cashier) + '</span></div></li>';
-				}).join('') + '</ul>' : '<p class="muted pad">No in-person sales yet today.</p>');
-		}).catch(function (e) {
-			var box = document.getElementById('sales-server');
-			if (box) { box.innerHTML = '<p class="muted pad">' + h(e.offline ? 'Offline right now.' : e.message) + '</p>'; }
+
+		var reload = function () { hist.page = 1; loadHistory(); };
+		var qt;
+		document.getElementById('h-q').addEventListener('input', function (e) { hist.q = e.target.value.trim(); clearTimeout(qt); qt = setTimeout(reload, 350); });
+		document.getElementById('h-method').addEventListener('change', function (e) { hist.method = e.target.value; reload(); });
+		var hc = document.getElementById('h-cashier');
+		if (hc) { hc.addEventListener('change', function (e) { hist.cashier = e.target.value; reload(); }); }
+		['h-from', 'h-to'].forEach(function (fid) {
+			document.getElementById(fid).addEventListener('change', function () {
+				hist.from = document.getElementById('h-from').value;
+				hist.to = document.getElementById('h-to').value;
+				if (hist.from && hist.to && hist.to < hist.from) { var t = hist.from; hist.from = hist.to; hist.to = t; }
+				reload();
+			});
 		});
+		if (online) { loadHistory(); }
+	}
+
+	function loadHistory(more) {
+		var box = document.getElementById('sales-server');
+		if (!box) { return; }
+		var seq = ++hist.seq;
+		if (!more) { hist.page = 1; hist.rows = []; }
+		api('pos/history?' + histQuery(hist.page, 50)).then(function (d) {
+			if (seq !== hist.seq) { return; }
+			hist.data = d;
+			hist.rows = more ? hist.rows.concat(d.sales) : d.sales;
+			var hc = document.getElementById('h-cashier');
+			if (hc && d.cashiers) {
+				var cur = hist.cashier;
+				hc.innerHTML = '<option value="">Everyone</option>' + d.cashiers.map(function (c) {
+					return '<option value="' + c.id + '"' + (String(c.id) === String(cur) ? ' selected' : '') + '>' + h(c.name) + '</option>';
+				}).join('');
+			}
+			renderHistory();
+		}).catch(function (e) {
+			if (seq !== hist.seq) { return; }
+			box.innerHTML = '<p class="muted pad">' + h(e.offline ? 'Offline right now.' : e.message) + '</p>';
+		});
+	}
+
+	function renderHistory() {
+		var box = document.getElementById('sales-server');
+		var d = hist.data;
+		if (!box || !d) { return; }
+		var oneDay = d.from === d.to;
+		if (hist.preset !== 'custom') { hist.from = d.from; hist.to = d.to; }
+		var totalsHtml = Object.keys(d.totals).map(function (k) {
+			return '<div class="sum"><span>' + h(k) + '</span><span>' + money(d.totals[k]) + '</span></div>';
+		}).join('');
+		box.innerHTML = '<div class="sums day-totals">' + totalsHtml +
+			'<div class="sum sum-total"><span>' + h(histLabel()) + ' (' + d.count + (d.count === 1 ? ' sale' : ' sales') + ', ' + d.units + (d.units === 1 ? ' item' : ' items') + ')</span><span>' + money(d.total) + '</span></div></div>' +
+			(!C.manager ? '<p class="muted small">Showing the sales you rang up.</p>' : '') +
+			(hist.rows.length ? '<ul class="sales">' + hist.rows.map(function (s) {
+				var when = oneDay ? s.time : s.day + ', ' + s.time;
+				var flag = !s.counts ? '<span class="badge badge-bad">' + h(s.statusLabel) + '</span>' : (s.refunded > 0 ? '<span class="badge">Refunded ' + money(s.refunded) + '</span>' : '');
+				return '<li><button type="button" class="sale sale-btn' + (!s.counts ? ' is-void' : '') + '" data-action="open-receipt" data-id="' + s.id + '">' +
+					'<span class="sale-main"><strong>#' + h(s.number) + '</strong> · ' + h(when) + ' · ' + h(s.method) +
+						(s.customer ? ' · ' + h(s.customer) : '') +
+						'<span class="muted block">' + h(s.items) + '</span>' + flag + '</span>' +
+					'<span class="sale-side"><strong>' + money(s.total) + '</strong><span class="muted">' + h(s.cashier) + '</span></span>' +
+				'</button></li>';
+			}).join('') + '</ul>' +
+			(d.page < d.pages ? '<button type="button" class="btn btn-block" data-action="hist-more">Show more (' + (d.found - hist.rows.length) + ' left)</button>' : '') :
+			'<p class="muted pad">No in-person sales ' + (hist.q || hist.method || hist.cashier ? 'match these filters.' : (hist.preset === 'today' ? 'yet today.' : 'in this period.')) + '</p>');
+	}
+
+	function csvCell(v) {
+		var s = String(v === null || v === undefined ? '' : v);
+		if (/^[=+\-@\t\r]/.test(s)) { s = "'" + s; } // Keep spreadsheets from running it as a formula.
+		return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+	}
+
+	function downloadHistory(btn) {
+		btn.disabled = true;
+		toast('Getting all sales...');
+		var all = [];
+		var page = 1;
+		var step = function () {
+			return api('pos/history?' + histQuery(page, 1000)).then(function (d) {
+				all = all.concat(d.sales);
+				if (d.page < d.pages) { page++; return step(); }
+				return d;
+			});
+		};
+		step().then(function (d) {
+			var head = ['Order', 'Date', 'Time', 'Cashier', 'Customer', 'Phone', 'Email', 'Items', 'Units', 'Subtotal', 'Discounts', 'Tax', 'Total', 'Refunded', 'Net', 'Payment', 'Status'];
+			var lines = [head.join(',')].concat(all.map(function (s) {
+				return [s.number, s.date, s.time, s.cashier, s.customer, s.phone, s.email, s.items, s.units, s.subtotal.toFixed(2), s.discount.toFixed(2), s.tax.toFixed(2), s.total.toFixed(2), s.refunded.toFixed(2), s.net.toFixed(2), s.method, s.statusLabel].map(csvCell).join(',');
+			}));
+			var name = 'prdrwndn-pos-sales-' + d.from + (d.to !== d.from ? '-to-' + d.to : '') + '.csv';
+			var blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+			return saveFile(blob, name, 'POS sales ' + d.from + (d.to !== d.from ? ' to ' + d.to : ''));
+		}).then(function () {
+			toast(all.length + (all.length === 1 ? ' sale' : ' sales') + ' downloaded');
+		}).catch(function (e) {
+			toast(e.offline ? 'Offline right now.' : e.message, true);
+		}).then(function () { btn.disabled = false; });
 	}
 
 	/* ---------------- Menu ---------------- */
@@ -1218,7 +1604,26 @@
 				syncQueue().then(function () { toast(queue.length ? queue.length + ' still waiting' : 'All sales uploaded'); });
 				break;
 			case 'refresh-catalog': closeSheet(); loadCatalog(false); break;
-			case 'refresh-sales': renderSales(); break;
+			case 'refresh-sales': receipts = {}; renderSales(); break;
+			case 'hist-preset':
+				hist.preset = btn.getAttribute('data-preset');
+				if (hist.preset === 'custom' && !hist.from) { hist.from = hist.to = (hist.data && hist.data.today) || ymd(new Date()); }
+				renderSales();
+				break;
+			case 'hist-more': hist.page++; loadHistory(true); break;
+			case 'hist-csv': downloadHistory(btn); break;
+			case 'open-receipt': openReceipt(id); break;
+			case 'rcpt-print': printReceipt(id); break;
+			case 'rcpt-pdf': downloadReceipt(id); break;
+			case 'rcpt-share': shareReceipt(id); break;
+			case 'rcpt-label': labelReceipt(id); break;
+			case 'rcpt-form':
+				Array.prototype.forEach.call(btn.closest('.rcpt-actions').querySelectorAll('.rcpt-form'), function (f) {
+					var show = f.getAttribute('data-form') === btn.getAttribute('data-form') && f.hidden;
+					f.hidden = !show;
+					if (show) { var inp = f.querySelector('input'); inp.focus({ preventScroll: true }); }
+				});
+				break;
 			case 'retry-sale':
 				queue.forEach(function (s) { if (s.uuid === btn.getAttribute('data-uuid')) { delete s.error; } });
 				store.set(KEY.queue, queue); syncQueue();

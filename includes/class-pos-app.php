@@ -25,6 +25,7 @@ class PRDRWNDN_POS_App {
 		add_rewrite_rule( '^pos/?$', 'index.php?' . self::QV . '=app', 'top' );
 		add_rewrite_rule( '^pos/manifest\.webmanifest$', 'index.php?' . self::QV . '=manifest', 'top' );
 		add_rewrite_rule( '^pos/sw\.js$', 'index.php?' . self::QV . '=sw', 'top' );
+		add_rewrite_rule( '^pos/receipt/?$', 'index.php?' . self::QV . '=receipt', 'top' );
 		if ( get_option( 'prdrwndn_pos_flush' ) ) {
 			delete_option( 'prdrwndn_pos_flush' );
 			flush_rewrite_rules( false );
@@ -70,6 +71,9 @@ class PRDRWNDN_POS_App {
 			self::manifest();
 		} elseif ( 'sw' === $what ) {
 			self::service_worker();
+		} elseif ( 'receipt' === $what ) {
+			self::no_cache();
+			PRDRWNDN_POS_Receipt::serve();
 		} else {
 			self::app();
 		}
@@ -141,6 +145,7 @@ class PRDRWNDN_POS_App {
 			'stock_css'  => $base . 'pos/stock.css?v=' . $v,
 			'stock_js'   => $base . 'pos/stock.js?v=' . $v,
 			'font'       => $base . 'fonts/bebas-neue-latin-400-normal.woff2',
+			'qz'         => $base . 'vendor/qz-tray.js?v=2.3.0',
 		);
 	}
 
@@ -276,6 +281,11 @@ self.addEventListener('fetch', function (e) {
 				'passkeys'  => count( PRDRWNDN_POS_Passkeys::all( $user->ID ) ),
 				'stockCss'  => $a['stock_css'],
 				'font'      => $a['font'],
+				'manager'   => current_user_can( PRDRWNDN_POS_Roles::CAP_MANAGE ),
+				'qz'        => $a['qz'],
+				'qzSign'    => current_user_can( PRDRWNDN_POS_Roles::CAP_LABELS ) && PRDRWNDN_POS_QZ::ready(),
+				'printer'   => (string) ( ( (array) get_option( 'prdrwndn_pos_settings', array() ) )['printer'] ?? '' ),
+				'receiptLogo' => $a['logo'],
 			);
 		}
 		$gnonce = ( 'login' === $view && PRDRWNDN_POS_Google::enabled() ) ? PRDRWNDN_POS_Google::start( self::path() ) : '';

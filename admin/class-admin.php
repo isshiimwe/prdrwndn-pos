@@ -431,6 +431,25 @@ class PRDRWNDN_POS_Admin {
 					</tr>
 				</table>
 
+				<?php $rc = PRDRWNDN_POS_Receipt::settings(); ?>
+				<h2><?php esc_html_e( 'Receipts', 'prdrwndn-pos' ); ?></h2>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><label for="prdpos-rc-phone"><?php esc_html_e( 'WhatsApp number', 'prdrwndn-pos' ); ?></label></th>
+						<td><input type="text" id="prdpos-rc-phone" name="receipt_phone" value="<?php echo esc_attr( $rc['phone'] ); ?>" class="regular-text">
+						<p class="description"><?php esc_html_e( 'Printed at the top of every receipt. Leave empty to leave it off.', 'prdrwndn-pos' ); ?></p></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="prdpos-rc-ig"><?php esc_html_e( 'Instagram', 'prdrwndn-pos' ); ?></label></th>
+						<td>@<input type="text" id="prdpos-rc-ig" name="receipt_instagram" value="<?php echo esc_attr( $rc['instagram'] ); ?>" class="regular-text"></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="prdpos-rc-foot"><?php esc_html_e( 'Thank-you line', 'prdrwndn-pos' ); ?></label></th>
+						<td><textarea id="prdpos-rc-foot" name="receipt_footer" rows="2" class="large-text"><?php echo esc_textarea( $rc['footer'] ); ?></textarea>
+						<p class="description"><?php esc_html_e( 'At the bottom of every receipt, for example a thank-you or your return policy.', 'prdrwndn-pos' ); ?></p></td>
+					</tr>
+				</table>
+
 				<h2><?php esc_html_e( 'Sales tax', 'prdrwndn-pos' ); ?></h2>
 				<table class="form-table" role="presentation">
 					<tr>
@@ -568,6 +587,11 @@ class PRDRWNDN_POS_Admin {
 		);
 
 		update_option( PRDRWNDN_POS_Sales::OPT_TAX, empty( $_POST['pos_tax'] ) ? 'no' : 'yes', false );
+		PRDRWNDN_POS_Receipt::save(
+			(string) wp_unslash( $_POST['receipt_phone'] ?? '' ), // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+			(string) wp_unslash( $_POST['receipt_instagram'] ?? '' ), // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+			(string) wp_unslash( $_POST['receipt_footer'] ?? '' ) // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+		);
 
 		$deals  = array();
 		$labels = (array) wp_unslash( $_POST['deal_label'] ?? array() ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput

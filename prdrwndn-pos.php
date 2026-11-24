@@ -3,7 +3,7 @@
  * Plugin Name:       PRDRWNDN POS
  * Plugin URI:        https://github.com/isshiimwe/prdrwndn-pos
  * Description:       In-person point of sale (installable app at /pos), barcodes and labels for the PRDRWNDN store. Uses WooCommerce stock, so the website and in-person sales share one count.
- * Version:           0.5.4
+ * Version:           0.6.0
  * Author:            PRDRWNDN
  * Requires at least: 6.5
  * Requires PHP:      7.4
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'PRDRWNDN_POS_VERSION', '0.5.4' );
+define( 'PRDRWNDN_POS_VERSION', '0.6.0' );
 define( 'PRDRWNDN_POS_FILE', __FILE__ );
 define( 'PRDRWNDN_POS_BASENAME', plugin_basename( __FILE__ ) );
 define( 'PRDRWNDN_POS_DIR', plugin_dir_path( __FILE__ ) );
@@ -72,6 +72,9 @@ add_action(
 		require_once PRDRWNDN_POS_DIR . 'includes/class-stock.php';
 		require_once PRDRWNDN_POS_DIR . 'includes/class-passkeys.php';
 		require_once PRDRWNDN_POS_DIR . 'includes/class-sale.php';
+		require_once PRDRWNDN_POS_DIR . 'includes/class-pdf.php';
+		require_once PRDRWNDN_POS_DIR . 'includes/class-receipt.php';
+		require_once PRDRWNDN_POS_DIR . 'includes/class-history.php';
 
 		// Re-run setup after an update (activation hooks do not run on updates).
 		if ( get_option( 'prdrwndn_pos_version' ) !== PRDRWNDN_POS_VERSION ) {
@@ -86,6 +89,8 @@ add_action(
 		PRDRWNDN_POS_Stock::init();
 		PRDRWNDN_POS_Passkeys::init();
 		PRDRWNDN_POS_Sale::init();
+		PRDRWNDN_POS_Receipt::init();
+		PRDRWNDN_POS_History::init();
 
 		if ( is_admin() ) {
 			require_once PRDRWNDN_POS_DIR . 'admin/class-admin.php';
